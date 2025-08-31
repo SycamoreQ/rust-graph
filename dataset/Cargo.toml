@@ -1,7 +1,0 @@
-[package]
-name = "dataset"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-xgraph = "2.0.0"

@@ -7,3 +7,8 @@ edition = "2024"
 petgraph = "0.8.2"
 llm = "0.1"
 transformers = "0.0.12"
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.9.1" }
+ndarray = "0.16.1"
+graphrs = "0.11.13"
+serde = "1.0.219"
+nalgebra = "0.34.0"
