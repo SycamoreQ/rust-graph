@@ -591,6 +591,226 @@ impl Graph{
 }
 
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GraphBatch{
+    pub graphs: Vec<Graph>,
+    pub node_features: Tensor ,
+    pub edge_features: Option<Tensor> ,
+    pub edge_indices: Tensor ,
+    pub edge_weights: Option<Tensor>, 
+    pub batch_vertices: Option<Tensor>,
+    pub ptr: Vec<usize>,
+    pub edge_ptr: Vec<usize>,
+}
+
+impl GraphBatch{
+    pub fn new() -> Self {
+        GraphBatch{
+            graphs: Vec::new(),
+            node_features: Tensor::new(),
+            edge_features: None,
+            edge_indices: Tensor::new(),
+            edge_weights: None,
+            batch_vertices: None,
+            ptr: Vec::new(),
+            edge_ptr: Vec::new(),
+        }
+    }
+    
+    pub fn from_graphs(&self , graphs: Vec<Graph>) -> Self {
+        let mut batch = GraphBatch::new();
+        batch.graphs = graphs;
+        batch.build_batch_tensors()?;
+        batch
+    }
+    
+    pub fn batch_size(&self) -> usize {
+        self.graphs.len()
+    }
+    
+    pub fn total_node(&self) -> usize {
+        self.graphs.iter().map(|g| g.node_count()).sum()
+    }
+    
+    pub fn total_edge(&self) -> usize {
+        self.graphs.iter().map(|g| g.edge_count()).sum()
+    }
+    
+    pub fn total_features(&self) -> usize {
+        self.node_features.size(0)
+    }
+    
+    fn build_batch_tensors(&mut self) -> Result<(), GraphError> {
+        let mut all_node_features = Vec::new();
+        let mut all_edge_indices = Vec::new();
+        let mut all_edge_features = Vec::new();
+        let mut all_edge_weights = Vec::new();
+        
+        let mut node_offset = 0;
+        let mut edge_offset = 0;
+        
+        self.ptr.clear();
+        self.edge_ptr.clear();
+        self.batch_indices.clear();
+        
+        self.ptr.push(0);
+        self.edge_ptr.push(0);
+        self.batch_indices.push(0);
+
+        for graph in &self.graphs {
+            let (edge_index, edge_weight, edge_feat) = graph.to_coo()?;
+            
+            // Collect node features
+            for node in graph.nodes.values() {
+                if let Some(ref features) = node.features {
+                    let feat_vec = features.to_vec()?;
+                    all_node_features.extend(feat_vec);
+                }
+            }
+            
+            // Collect edge indices (offset by current node count)
+            let edge_indices_vec = edge_index.to_vec()?;
+            for chunk in edge_indices_vec.chunks(2) {
+                all_edge_indices.push(chunk[0] + node_offset as f32);
+                all_edge_indices.push(chunk[1] + node_offset as f32);
+            }
+            
+            // Collect edge weights
+            let weights = edge_weight.to_vec()?;
+            all_edge_weights.extend(weights.clone());
+            
+            // Collect edge features if present
+            if let Some(feat) = edge_feat {
+                let feat_vec = feat.to_vec()?;
+                all_edge_features.extend(feat_vec);
+            }
+
+            node_offset += graph.node_count();
+            edge_offset += weights.len();
+            
+            self.ptr.push(node_offset);
+            self.edge_ptr.push(edge_offset);
+            self.batch_indices.push(node_offset);
+        }
+
+        // Build batch tensors
+        if !all_node_features.is_empty() {
+            let feature_dim = if !self.graphs.is_empty() && !self.graphs[0].nodes.is_empty() {
+                self.graphs[0].nodes.values().next().unwrap()
+                    .feature_dim().unwrap_or(1)
+            } else { 1 };
+            
+            self.node_features = Tensor::from_data(
+                all_node_features, 
+                &[node_offset, feature_dim]
+            )?;
+        }
+
+        if !all_edge_indices.is_empty() {
+            self.edge_indices = Tensor::from_data(
+                all_edge_indices,
+                &[2, edge_offset]
+            )?;
+        }
+
+        if !all_edge_weights.is_empty() {
+            self.edge_weights = Some(Tensor::from_data(
+                all_edge_weights,
+                &[edge_offset]
+            )?);
+        }
+
+        if !all_edge_features.is_empty() {
+            // Assume single feature dimension for simplicity
+            self.edge_features = Some(Tensor::from_data(
+                all_edge_features,
+                &[edge_offset, 1]
+            )?);
+        }
+
+        Ok(())
+    }
+}
+
+pub struct RWSE{
+    pub embedding_dim : usize, 
+    pub transition_matrix : Vec<Vec<f32>>,
+    pub adjacency_matrix : Vec<Vec<f32>>,
+    pub node_count : usize,
+}
+
+impl RWSE{
+    pub fn new(embedding_dim: usize, transition_matrix: Vec<Vec<f32>>, adjacency_matrix: Vec<Vec<f32>>, node_count: usize, walk_length: usize) -> Self{
+        Self{
+            embedding_dim,
+            transition_matrix,
+            adjacency_matrix,
+            node_count,
+            walk_length
+        }
+    }
+    
+    pub fn comp_transition_matrix(adj_matrix : &[Vec<f64>]) -> Vec<Vec<f64>>{
+        let n = adj_matrix.len();
+        let mut transition_matrix =  vec![vec![0.0f64 ; n * n ]];
+        
+        for i in 0..n {
+            let degree  = adj_matrix[i].iter().sum::<f64>();
+            for j in 0..n {
+                transition_matrix[i][j] = adj_matrix[i][j] / degree;
+            }
+        }
+        
+        transition_matrix
+    } 
+    
+    fn matrix_power(&self, k: usize) -> Vec<Vec<f64>> {
+        if k == 0 {
+            // Return identity matrix
+            let mut identity = vec![vec![0.0; self.node_count]; self.node_count];
+            for i in 0..self.node_count {
+                identity[i][i] = 1.0;
+            }
+            return identity;
+        }
+        
+        if k == 1 {
+            return self.transition_matrix.clone();
+        }
+        
+        // Use repeated matrix multiplication
+        let mut result = self.transition_matrix.clone();
+        
+        for _ in 2..=k {
+            result = &result.matmul(&self.transition_matrix.t());
+        }
+        
+        result
+    }
+}
+
+pub struct LapPE{
+    
+}
+
+pub fn adjacency_list_to_matrix(adj_list: &[Vec<usize>], n: Option<usize>) -> Vec<Vec<u8>> {
+    let size = n.unwrap_or(adj_list.len());
+    let mut matrix = vec![vec![0u8; size]; size];
+    
+    for (i, neighbors) in adj_list.iter().enumerate() {
+        for &j in neighbors {
+            if j < size {
+                matrix[i][j] = 1;
+            }
+        }
+    }
+    
+    matrix
+}
+
+
+
+
 
 
 
