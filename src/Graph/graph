@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tensor::{Tensor , Device , Dtype , TensorError};
+use candle::core::{Tensor , Device , Dtype};
 use serde::json;
 use std::collections::{HashMap , HashSet}; 
 use rayon::prelude::*;
@@ -50,7 +50,7 @@ impl Node {
     }
 }
 
-
+#[derive(Debug , Clone , PartialEq , HashMap , Eq)]
 pub struct Edge{
     pub id: EdgeID,
     pub src: NodeID,
@@ -447,6 +447,146 @@ impl Graph{
             
             Ok(())
         }
+    }
+    
+    pub fn add_edge(&mut self , edge : Edge) -> Result<() , GraphError>{
+        
+        if !self.nodes.contains_key(&edge.src) || !self.nodes.contains_key(&edge.dst) {
+            return Err(GraphError::NodeNotFound);
+        }
+    
+        self.adjacency_list.get_mut(&edge.src).unwrap().push(edge.dst);
+        self.reverse_adjacency.get_mut(&edge.dst).unwrap().push(edge.src);
+        
+        if !self.is_directed && edge.source != edge.target {
+            self.adjacency_list.entry(edge.target)
+                .or_default()
+                .push(edge.id);
+            self.reverse_adjacency.entry(edge.source)
+                .or_default()
+                .push(edge.id);
+        }
+
+        // Update edge type index
+        self.edge_types.entry(edge.edge_type.clone())
+            .or_default()
+            .push(edge.id);
+
+        self.edges.insert(edge.id, edge);
+        Ok(())
+    }
+    
+    pub fn remove_node(&mut self , node_id : NodeID , edge_id : EdgeID) -> Result<Node , GraphError>{
+        let node = self.nodes.remove(&node_id).ok_or(GraphError::NodeNotFound)?; 
+        
+        let mut edges_to_remove = Vec::new();
+        
+        if let Some(outgoing) = self.adjacency_list.remove(&node_id) {
+            edges_to_remove.extend(outgoing);
+        }
+        
+        if let Some(incoming) = self.reverse_adjacency.remove(&node_id) {
+            edges_to_remove.extend(incoming);
+        }
+        
+        for edges in edges_to_remove{
+            self.edges.remove(edge_id);
+        }
+        
+        Ok(Node)
+        
+    }
+    
+    pub fn remove_edge(&mut self , edge_id : EdgeID) -> Result<Edge , GraphError> {
+        let edge = self.edges.remove(&edge_id).ok_or(GraphError::EdgeNotFound)?;
+        
+        self.adjacency_list.get_mut(&edge.src).unwrap().retain(|&x| x != edge_id);
+        self.reverse_adjacency.get_mut(&edge.dst).unwrap().retain(|&x| x != edge_id);
+        
+        self.edge_types.get_mut(&edge.edge_type).unwrap().retain(|&x| x != edge_id);
+        
+        if !self.is_directed && edge.source != edge.target {
+            if let Some(adj_list) = self.adjacency_list.get_mut(&edge.target) {
+                adj_list.retain(|&id| id != edge_id);
+            }
+            if let Some(rev_adj_list) = self.reverse_adjacency.get_mut(&edge.source) {
+                rev_adj_list.retain(|&id| id != edge_id);
+            }
+        }
+
+        // Remove from edge type index
+        if let Some(type_list) = self.edge_types.get_mut(&edge.edge_type) {
+            type_list.retain(|&id| id != edge_id);
+            if type_list.is_empty() {
+                self.edge_types.remove(&edge.edge_type);
+            }
+        }
+
+        Ok(edge)
+    }
+    
+    pub fn get_node(&self , node_id: NodeID) -> Result<Node , GraphError>{
+        self.nodes.get(&node_id).ok_or(GraphError::NodeNotFound)
+    }
+    
+    pub fn get_edge(&self , edge_id: EdgeID) -> Result<Edge , GraphError>{
+        self.edges.get(&edge_id).ok_or(GraphError::EdgeNotFound)
+    }
+    
+    fn neighbors(&self, node_id: NodeId, direction: EdgeDirection) -> Vec<NodeId> {
+        let mut neighbors = Vec::new();
+
+        match direction {
+            EdgeDirection::Outgoing => {
+                if let Some(edge_ids) = self.adjacency_list.get(&node_id) {
+                    for &edge_id in edge_ids {
+                        if let Some(edge) = self.edges.get(&edge_id) {
+                            neighbors.push(edge.target);
+                        }
+                    }
+                }
+            }
+            EdgeDirection::Incoming => {
+                if let Some(edge_ids) = self.reverse_adjacency.get(&node_id) {
+                    for &edge_id in edge_ids {
+                        if let Some(edge) = self.edges.get(&edge_id) {
+                            neighbors.push(edge.source);
+                        }
+                    }
+                }
+            }
+            EdgeDirection::Both => {
+                let mut neighbor_set = HashSet::new();
+                
+                if let Some(edge_ids) = self.adjacency_list.get(&node_id) {
+                    for &edge_id in edge_ids {
+                        if let Some(edge) = self.edges.get(&edge_id) {
+                            neighbor_set.insert(edge.target);
+                        }
+                    }
+                }
+                
+                if let Some(edge_ids) = self.reverse_adjacency.get(&node_id) {
+                    for &edge_id in edge_ids {
+                        if let Some(edge) = self.edges.get(&edge_id) {
+                            neighbor_set.insert(edge.source);
+                        }
+                    }
+                }
+                
+                neighbors.extend(neighbor_set);
+            }
+        }
+
+        neighbors
+    }
+
+    fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+
+    fn edge_count(&self) -> usize {
+        self.edges.len()
     }
 }
 
