@@ -417,8 +417,42 @@ impl Graph{
         Tensor::from_data(laplacian, &[num_nodes, num_nodes])
     }
     
+    impl GraphOps for Graph{
+        
+        fn add_node(&mut self , mut node : Node) -> Result<() , GraphError>{
+            if node.id == 0 {
+                node.id = self.next_node_id;
+                self.next_node_id += 1;
+            }
     
+            // Update node type index
+            self.node_types.entry(node.node_type.clone())
+                .or_default()
+                .push(node.id);
+    
+            self.nodes.insert(node.id, node);
+            self.adjacency_list.entry(node.id).or_default();
+            self.reverse_adjacency.entry(node.id).or_default();
+            
+            Ok(())
+        }
+        
+        fn add_edge(&mut self, src: u32, dst: u32) -> Result<(), GraphError> {
+            if !self.nodes.contains_key(&src) || !self.nodes.contains_key(&dst) {
+                return Err(GraphError::NodeNotFound);
+            }
+    
+            self.adjacency_list.get_mut(&src).unwrap().push(dst);
+            self.reverse_adjacency.get_mut(&dst).unwrap().push(src);
+            
+            Ok(())
+        }
+    }
 }
 
 
 
+
+
+
+        
