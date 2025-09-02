@@ -1,0 +1,143 @@
+use crate::Graph::graph::{Node , Edge , Graph , GraphOps , EdgeDirection};
+use crate::attn::{CrossAttention , BasicTransformerBlock , AttentionBlock};
+use candle::core::{Tensor, Device, DType};
+use candle::nn::ops::{softmax , layer_norm , dropout , softmax_last_dim , leaky_relu};
+use candle::nn::init::Init;
+use candle::candle_transformers as transformers; 
+
+
+pub type embedding_dim = usize;
+pub type input_dim = usize;
+pub type hidden_dim = usize;
+pub type output_dim = usize; 
+
+
+#[derive(Debug , Clone)]
+pub struct AttentionHead {
+    pub input_dim: usize,
+    pub output_dim: usize,
+    pub weight_matrix: Vec<Vec<f32>>,      
+    pub attention_vector: Vec<f32>,       
+    pub dropout_rate: f32,
+}
+
+impl AttentionHead {
+    pub fn new(input_dim: usize, output_dim: usize, dropout_rate: f32) -> Self {
+        let mut rng = rand::thread_rng();
+        
+        // Initialize weight matrix with Xavier initialization
+        let xavier_std = (2.0 / (input_dim + output_dim) as f32).sqrt();
+        let weight_matrix = (0..output_dim)
+            .map(|_| {
+                (0..input_dim)
+                    .map(|_| rng.gen_range(-xavier_std..xavier_std))
+                    .collect()
+            })
+            .collect();
+        
+        // Initialize attention vector
+        let attention_vector = (0..2 * output_dim)
+            .map(|_| rng.gen_range(-0.1..0.1))
+            .collect();
+        
+        AttentionHead {
+            input_dim,
+            output_dim,
+            weight_matrix,
+            attention_vector,
+            dropout_rate,
+        }
+    }
+    
+    // Linear transformation: h' = W * h
+    fn linear_transform(&self, features: &[f32]) -> Vec<f32> {
+        self.weight_matrix
+            .iter()
+            .map(|row| {
+                row.iter().zip(features.iter()).map(|(w, f)| w * f).sum()
+            })
+            .collect()
+    }
+    
+    fn compute_attention_coef(&self, features_i: &[f32], features_j: &[f32]) -> f32 {
+        let h_i = self.linear_transform(features_i);
+        let h_j = self.linear_transform(features_j);
+        
+        let concat_features: Vec<f32> = h_i.into_iter().chain(h_j.into_iter()).collect();
+        
+        let attention_score: f32 = self.attention_vector
+            .iter()
+            .zip(concat_features.iter())
+            .map(|(a, h)| a * h)
+            .sum();
+        
+        self.leaky_relu(attention_score, 0.2)
+    }
+    
+    fn forward(&self , graph: &Graph , direction: EdgeDirection) -> Vec<f32>{
+        let node =  &graph.nodes.get(node_id);
+        let node_features = &node.features;
+        
+        let node_neighbours = GraphOps::neighbors(node_id , direction);
+        
+        let mut all_neighbours = node_neighbours; 
+        all_neighbours.push(node_id);
+        
+        let attn_coefs = all_neighbours
+            .iter()
+            .map(|&neighbour_id| {
+                let neighbour_features = &graph.nodes.get(neighbour_id).features;
+                self.compute_attention_coef(node_features, neighbour_features)
+            })
+            .collect();
+        
+        let attn_softmax = softmax(&attn_coefs)?;
+        
+        let mut output = vec![0.0; self.output_dim];
+        for (i, &neighbor_id) in all_neighbors.iter().enumerate() {
+            let neighbor_features = &graph.node_features[&neighbor_id];
+            let transformed_features = self.linear_transform(neighbor_features);
+            let weight = self.apply_dropout(attention_weights[i]);
+            
+            for j in 0..self.output_dim {
+                output[j] += weight * transformed_features[j];
+            }
+        }
+        
+        output
+        
+    }
+
+}
+
+
+
+pub struct GATLayer{
+    pub embedding_dim : embedding_dim,
+    pub input_dim : input_dim,
+    pub hidden_dim : hidden_dim,
+    pub output_dim : output_dim,
+    pub attention_matrix : Vec<Vec<Tensor>>,
+    pub num_heads : usize, 
+    pub trans_blocks : Vec<AttentionBlock>,
+}
+
+impl GATLayer{ 
+    
+    pub fn new(embedding_dim : embedding_dim , input_dim : input_dim , hidden_dim : hidden_dim , output_dim : output_dim , num_heads : usize) -> Self{
+        let attention_matrix = vec![vec![Tensor::zeros([embedding_dim , embedding_dim] , Device::Cpu) ; num_heads] ; num_heads];
+        Self{
+            embedding_dim,
+            input_dim,
+            hidden_dim,
+            output_dim,
+            attention_matrix,
+            num_heads,
+            trans_blocks: Vec::new(),
+        }
+    }
+    
+    pub fn forward(&mut self , graph: Graph) -> Vec<f32>{
+        
+    }
+}
