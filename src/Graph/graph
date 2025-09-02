@@ -790,6 +790,50 @@ impl RWSE{
 }
 
 pub struct LapPE{
+    pub embedding_dim: usize,
+    pub Laplacian_matrix: Vec<Vec<f64>>,
+    pub node_count: usize,
+}
+
+impl LapPE{ 
+    pub fn new(embedding_dim: usize, Laplacian_matrix: Vec<Vec<f64>>, node_count: usize) -> Self {
+        LapPE {
+            embedding_dim,
+            Laplacian_matrix,
+            node_count,
+        }
+    }
+    
+    
+    pub fn compute_laplacian(adj_matrix : Vec<Vec<f64>> , normalized: bool) -> Vec<Vec<f64>>{
+        let n = adj_matrix.len();
+        let mut Laplacian_matrix = vec![vec![0.0f64;n*n]];
+        let mut identity = vec![vec![0.0f64;n*n]];
+        
+        for i in 0..n{
+            identity[i][i] = 1.0; 
+        }
+        
+        for i in 0..n {
+            let degree = adj_matrix[i].iter().sum::<f64>();
+            for j in 0..n{
+                if i == j {
+                    Laplacian_matrix[i][j] = degree;
+                }
+                else{
+                    Laplacian_matrix[i][j] = degree - adj_matrix[i][j];
+                }
+            }
+            
+            if normalized == true { 
+                for j in 0..n {
+                    Laplacian_matrix[i][j] = identity[i][j] - (sqrt(degree)) * (adj_matrix[i][j]) * (sqrt(degree));
+                }
+            }
+            
+            Laplacian_matrix 
+        }
+    }
     
 }
 
