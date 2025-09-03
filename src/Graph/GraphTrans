@@ -1,4 +1,6 @@
-use crate::Graph::graph::{Node , Edge , Graph , GraphOps , EdgeDirection};
+mod GraphTrans;
+
+use crate::Graph::graph::{Node , Edge , Graph , GraphOps , EdgeDirection , NodeID , EdgeID};
 use crate::attn::{CrossAttention , BasicTransformerBlock , AttentionBlock};
 use candle::core::{Tensor, Device, DType};
 use candle::nn::ops::{softmax , layer_norm , dropout , softmax_last_dim , leaky_relu};
@@ -74,7 +76,7 @@ impl AttentionHead {
         self.leaky_relu(attention_score, 0.2)
     }
     
-    fn forward(&self , graph: &Graph , direction: EdgeDirection) -> Vec<f32>{
+    fn forward(&self , graph: &Graph , node_id: NodeID) -> Vec<f32>{
         let node =  &graph.nodes.get(node_id);
         let node_features = &node.features;
         
@@ -110,8 +112,6 @@ impl AttentionHead {
 
 }
 
-
-
 pub struct GATLayer{
     pub embedding_dim : embedding_dim,
     pub input_dim : input_dim,
@@ -120,6 +120,9 @@ pub struct GATLayer{
     pub attention_matrix : Vec<Vec<Tensor>>,
     pub num_heads : usize, 
     pub trans_blocks : Vec<AttentionBlock>,
+    pub weights_per_head : Vec<num_heads>,
+    pub is_weighted: bool,
+    pub is_concat : bool, 
 }
 
 impl GATLayer{ 
@@ -138,6 +141,103 @@ impl GATLayer{
     }
     
     pub fn forward(&mut self , graph: Graph) -> Vec<f32>{
+        let head_outputs : Vec<Vec<f32>> = 
+            self.heads
+                .iter()
+                .map(|head| head.forward(graph , node_id))
+                .collect();
         
+        if self.is_concat { 
+            head_outputs.into_iter().flatten().collect()
+        }
+        
+        else if is_weighted {
+            let weight = self.weights_per_head;
+            let weighted_outputs = head_outputs
+                .into_iter()
+                .map(|head_output|
+                    weight.into_iter()
+                        .zip(head_output)
+                        .map(|(weight, value)| weight * value)
+                        .collect()
+                )
+                .collect();
+            weighted_outputs.into_iter().flatten().collect()
+        }
+        
+        else if is_averaged{
+        
+            let output_dim = head_outputs[0].len();
+            let mut averaged_output = vec![0.0; output_dim];
+        
+            for head_output in &head_outputs {
+                for (i, &value) in head_output.iter().enumerate() {
+                    averaged_output[i] += value;
+                }
+            }
+        
+            averaged_output
+                .into_iter()
+                .map(|sum| sum / self.heads.len() as f32)
+                .collect()
+        }
+        
+        else {
+            head_outputs.into_iter().flatten().collect()
+        }
     }
 }
+
+pub struct GAT{
+    pub layers: Vec<GATLayer> 
+}
+
+impl GAT{ 
+    pub fn new() -> Self {
+        GAT{layers: Vec::new()}
+    }
+    
+    pub fn add_layer(&mut self , layer:GATLayer){
+        self.layers.push(layer);
+    }
+    
+    fn elu(&self, x: f32, alpha: f32) -> f32 {
+        if x > 0.0 {
+            x
+        } else {
+            alpha * (x.exp() - 1.0)
+        }
+    }
+    
+    pub async fn forward(&self, graph: &Graph) -> HashMap<usize, Vec<f32>> {
+        let mut current_features = HashMap::new();
+        
+        for &node_id in &graph.nodes {
+            let features = graph.get_encoded_features(node_id).await;
+            current_features.insert(node_id, features);
+        }
+        v
+        for (layer_idx, layer) in self.layers.iter().enumerate() {
+            let layer_outputs = futures::future::join_all(
+                graph.nodes.iter().map(|&node_id| async {
+                    let mut output = layer.forward(graph, node_id).await;
+                    
+                    // Apply activation (except last layer)
+                    if layer_idx < self.layers.len() - 1 {
+                        output = output
+                            .into_iter()
+                            .map(|x| self.elu(x, 1.0))
+                            .collect();
+                    }
+                    
+                    (node_id, output)
+                })
+            ).await;
+            
+            current_features = layer_outputs.into_iter().collect();
+        }
+        
+        current_features
+    }
+}
+            
