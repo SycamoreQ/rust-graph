@@ -3,6 +3,7 @@ mod GraphTrans;
 use crate::Graph::graph::{Node , Edge , Graph , GraphOps , EdgeDirection , NodeID , EdgeID};
 use crate::attn::{CrossAttention , BasicTransformerBlock , AttentionBlock};
 use candle::core::{Tensor, Device, DType};
+use candle::nn::{rnn , lstm}; 
 use candle::nn::ops::{softmax , layer_norm , dropout , softmax_last_dim , leaky_relu};
 use candle::nn::init::Init;
 use candle::candle_transformers as transformers; 
@@ -216,7 +217,6 @@ impl GAT{
             let features = graph.get_encoded_features(node_id).await;
             current_features.insert(node_id, features);
         }
-        v
         for (layer_idx, layer) in self.layers.iter().enumerate() {
             let layer_outputs = futures::future::join_all(
                 graph.nodes.iter().map(|&node_id| async {
@@ -248,7 +248,8 @@ pub struct GCN{
     pub input_dim: usize,
     pub output_dim: usize,
     pub weight_matrix: Vec<Vec<f32>>,
-    pub bias: Vec<f32>
+    pub bias: Vec<f32>,
+    pub use_bias: bool,
 }
 
 impl GCN{
@@ -281,35 +282,41 @@ impl GCN{
     }
     
     pub fn forward(&self , graph: &Graph , node_features : &Vec<Vec<f32>>) -> Vec<Vec<f32>>{
+        let nodes = graph.nodes.len();
+        let laplacian = graph.Laplacian(normalized = True).expect("Laplacian matrix not found");
         
-    }
-    
-
-    
-}
-
-#[derive(Debug , Clone )]
-pub struct GCLSTMlayer {
-    pub embedding_dim: embedding_dim , 
-    pub input_dim: input_dim , 
-    pub hidden_dim : hidden_dim ,
-    pub output_dim : output_dim ,
-    pub lstm: lstm::LSTM,
-}
-
-impl GCLSTMlayer {
-    pub fn new(embedding_dim: usize, input_dim: usize, hidden_dim: usize, output_dim: usize) -> Self {
-        let lstm = lstm::LSTM::new(embedding_dim, hidden_dim, output_dim);
-        Self {
-            embedding_dim,
-            input_dim,
-            hidden_dim,
-            output_dim,
-            lstm,
+        let mut new_node_feat = vec![vec![0.0; self.output_dim]; nodes];
+        
+        for i in 0..nodes{
+            
+            let mut aggregated_features =  vec![0.0; self.input_dim];
+            
+            for j in 0..nodes{
+                let laplacian_weight = Laplacian[i][j];
+                
+                if laplacian_weight != 0.0 && j < node_features.len(){
+                    for k in 0..self.input_dim.min(node_features[j].len()){
+                        aggregated_features[k] += laplacian_weight * node_features[j][k];
+                    }
+                }
+            }
+            for out_idx in 0..self.output_dim {
+                let mut sum = 0.0;
+                for in_idx in 0..self.input_dim {
+                    sum += self.weight_matrix[out_idx][in_idx] * aggregated_features[in_idx];
+                }
+                
+                if self.use_bias {
+                    sum += self.bias[out_idx];
+                }
+                
+                output[i][out_idx] = sum;
+            }
         }
+        
+        output
     }
-    
-    
 }
+
 
             
