@@ -16,11 +16,12 @@ pub enum EdgeDirection {
     Both,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     pub id: NodeID,
     pub node_type: String,
     pub attributes: HashMap<String, AttributeValue>,
+    #[serde(skip_serializing, skip_deserializing)]
     pub features: Option<Tensor>,
 }
 
@@ -105,7 +106,9 @@ impl Edge {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+
+
+#[derive(Debug, Clone, PartialEq , Serialize, Deserialize)]
 pub enum AttributeValue {
     String(String),
     Integer(i64),
@@ -665,21 +668,23 @@ impl RWSE{
 
 pub struct LapPE{
     pub embedding_dim: usize,
+    pub laplacian_matrix: Vec<Vec<f64>>,
     pub node_count: usize,
 }
 
 impl LapPE{ 
-    pub fn new(embedding_dim: usize, node_count: usize) -> Self {
+    pub fn new(embedding_dim: usize, laplacian_matrix: Vec<Vec<f64>>, node_count: usize) -> Self {
         LapPE {
             embedding_dim,
+            laplacian_matrix,
             node_count,
         }
     }
     
     
-    pub fn compute_laplacian(adj_matrix : Vec<Vec<f64>> , normalized: bool) -> Vec<Vec<f64>>{
+    pub fn compute_laplacian(&self ,adj_matrix : Vec<Vec<f64>> , normalized: bool) -> Vec<Vec<f64>>{
         let n = adj_matrix.len();
-        let mut laplacian_matrix = vec![vec![0.0f64;n*n]];
+        let laplacian_matrix = self.laplacian_matrix.clone();
         let mut identity = vec![vec![0.0f64;n*n]];
         
         for i in 0..n{
