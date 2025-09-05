@@ -55,7 +55,7 @@ impl Node {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Edge {
     pub id: EdgeID,
     pub src: NodeID,
@@ -123,16 +123,16 @@ pub enum AttributeValue {
     Float(f64),
     Boolean(bool),
     Vector(Vec<f32>),
-    #[serde(skip_serializing , skip_deserializing)]
+    #[serde(skip_serializing, skip_deserializing)]
     Tensor(Tensor),
 }
 
 impl PartialEq for AttributeValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (AttributeValue::Int(a), AttributeValue::Int(b)) => a == b,
+            (AttributeValue::Integer(a), AttributeValue::Integer(b)) => a == b,
             (AttributeValue::Float(a), AttributeValue::Float(b)) => a == b,
-            (AttributeValue::Text(a), AttributeValue::Text(b)) => a == b,
+            (AttributeValue::String(a), AttributeValue::String(b)) => a == b,
             // Tensor equality not supported, treat them as always "not equal"
             (AttributeValue::Tensor(_), AttributeValue::Tensor(_)) => false,
             _ => false,
