@@ -617,7 +617,7 @@ pub struct RWSE{
 }
 
 impl RWSE{
-    pub fn new(embedding_dim: usize, transition_matrix: Vec<Vec<f64>>, adjacency_matrix: Vec<Vec<f64>>, node_count: usize, walk_length: usize) -> Self{
+    pub fn new(embedding_dim: usize, transition_matrix: Vec<Vec<f64>>, adjacency_matrix: Vec<Vec<f64>>, node_count: usize) -> Self{
         Self{
             embedding_dim,
             transition_matrix,
@@ -683,7 +683,7 @@ impl LapPE{
     
     pub fn compute_laplacian(&self ,adj_matrix : Vec<Vec<f64>> , normalized: bool) -> Vec<Vec<f64>>{
         let n = adj_matrix.len();
-        let laplacian_matrix = self.laplacian_matrix.clone();
+        let mut laplacian_matrix = self.laplacian_matrix.clone();
         let mut identity = vec![vec![0.0f64;n*n]];
         
         for i in 0..n{
@@ -712,8 +712,7 @@ impl LapPE{
     }
     
     fn matrix_power(&self, k: usize) -> Vec<Vec<f64>> {
-        let n = self.node_count();
-        let mut laplacian_matrix = vec![vec![0.0f64;n*n]];
+        let mut laplacian_matrix = self.laplacian_matrix.clone();
         if k == 0 {
             // Return identity matrix
             let mut identity = vec![vec![0.0; self.node_count]; self.node_count];
