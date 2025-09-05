@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::{sync::Arc, vec};
 use candle_core::{Tensor, Device, DType};
 use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet, VecDeque}; 
-use core::f64::math::sqrt;
+use std::f64;
+
 
 
 pub type NodeID = u32;
@@ -44,10 +45,6 @@ impl Node {
     pub fn with_attribute<V: Into<AttributeValue>>(mut self, key: String, value: V) -> Self {
         self.attributes.insert(key, value.into());
         self
-    }
-
-    pub fn feature_dim(&self) -> Option<usize> {
-        self.features.as_ref().map(|f| f.shape()[f.shape().len() - 1])
     }
 }
 
@@ -201,6 +198,19 @@ impl PartialEq for Graph {
             && self.edge_types == other.edge_types
             && self.attributes == other.attributes
             && self.is_directed == other.is_directed
+    }
+}
+
+impl PartialEq for AttributeValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (AttributeValue::Int(a), AttributeValue::Int(b)) => a == b,
+            (AttributeValue::Float(a), AttributeValue::Float(b)) => a == b,
+            (AttributeValue::Text(a), AttributeValue::Text(b)) => a == b,
+            // Tensor equality not supported, treat them as always "not equal"
+            (AttributeValue::Tensor(_), AttributeValue::Tensor(_)) => false,
+            _ => false,
+        }
     }
 }
 
@@ -665,6 +675,7 @@ impl RWSE{
     }
 }
 
+#[derive(Debug , Clone)]
 pub struct LapPE{
     pub embedding_dim: usize,
     pub laplacian_matrix: Vec<Vec<f64>>,
@@ -700,11 +711,12 @@ impl LapPE{
                     laplacian_matrix[i][j] = degree - adj_matrix[i][j];
                 }
             }
-            laplacian_matrix;
+            laplacian_matrix.clone();
             
             if normalized == true { 
                 for j in 0..n {
-                    laplacian_matrix[i][j] = identity[i][j] - (sqrt(degree)) * (adj_matrix[i][j]) * (sqrt(degree));
+                    laplacian_matrix[i][j] = identity[i][j] - degree.sqrt() * adj_matrix[i][j] * degree.sqrt();
+
                 }
             }
         }
@@ -712,7 +724,7 @@ impl LapPE{
     }
     
     fn matrix_power(&self, k: usize) -> Vec<Vec<f64>> {
-        let mut laplacian_matrix = self.laplacian_matrix.clone();
+        let mut laplacian_matrix = vec![vec![0.0; self.node_count]; self.node_count];
         if k == 0 {
             // Return identity matrix
             let mut identity = vec![vec![0.0; self.node_count]; self.node_count];
