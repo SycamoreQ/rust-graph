@@ -27,6 +27,13 @@ pub struct Node {
     pub features: Option<Tensor>,
 }
 
+impl PartialEq for Node {
+    fn eq(&self, other: &Self) -> bool {
+        self.attributes == other.attributes
+        // We ignore `features` in equality check
+    }
+}
+
 impl Node {
     pub fn new(id: NodeID, node_type: String) -> Self {
         Self {
@@ -58,6 +65,13 @@ pub struct Edge {
     pub features: Option<Tensor>,
     pub weight: f32,
     pub attributes: HashMap<String, AttributeValue>,
+}
+
+impl PartialEq for Edge {
+    fn eq(&self, other: &Self) -> bool {
+        self.attributes == other.attributes
+        // ignoring features
+    }
 }
 
 impl Edge { 
@@ -102,7 +116,6 @@ impl Edge {
 }
 
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AttributeValue {
     String(String),
@@ -112,6 +125,19 @@ pub enum AttributeValue {
     Vector(Vec<f32>),
     #[serde(skip_serializing , skip_deserializing)]
     Tensor(Tensor),
+}
+
+impl PartialEq for AttributeValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (AttributeValue::Int(a), AttributeValue::Int(b)) => a == b,
+            (AttributeValue::Float(a), AttributeValue::Float(b)) => a == b,
+            (AttributeValue::Text(a), AttributeValue::Text(b)) => a == b,
+            // Tensor equality not supported, treat them as always "not equal"
+            (AttributeValue::Tensor(_), AttributeValue::Tensor(_)) => false,
+            _ => false,
+        }
+    }
 }
 
 impl From<String> for AttributeValue {
@@ -198,19 +224,6 @@ impl PartialEq for Graph {
             && self.edge_types == other.edge_types
             && self.attributes == other.attributes
             && self.is_directed == other.is_directed
-    }
-}
-
-impl PartialEq for AttributeValue {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (AttributeValue::Int(a), AttributeValue::Int(b)) => a == b,
-            (AttributeValue::Float(a), AttributeValue::Float(b)) => a == b,
-            (AttributeValue::Text(a), AttributeValue::Text(b)) => a == b,
-            // Tensor equality not supported, treat them as always "not equal"
-            (AttributeValue::Tensor(_), AttributeValue::Tensor(_)) => false,
-            _ => false,
-        }
     }
 }
 
