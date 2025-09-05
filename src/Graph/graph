@@ -5,10 +5,10 @@ use std::collections::{HashMap , HashSet};
 use rayon::prelude::*;
 use nalgebra::{sqrt};
 
-pub type NodeID  = u64;
-pub type EdgeID = u64;
-pub type GraphID = u64 ; 
-pub type SubgraphID = u64;
+pub type NodeID  = u32;
+pub type EdgeID = u32;
+pub type GraphID = u32 ; 
+pub type SubgraphID = u32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EdgeDirection {
@@ -21,13 +21,13 @@ pub enum EdgeDirection {
 #[derive(Debug , Clone , PartialEq , HashMap , Eq)]
 pub struct Node{
     pub id : NodeID,
-    pub nodeType: Option<Tensor>,
+    pub nodeType: String,
     pub attributes : HashMap<String , AttributeValue>,
     pub features: Option<Tensor>,
 }
 
 impl Node {
-    pub fn new(id : NodeID , node_type : Option<Tensor>) {
+    pub fn new(id : NodeID , node_type : String) {
         Self(
             id ,
             node_type ,
@@ -56,14 +56,14 @@ pub struct Edge{
     pub id: EdgeID,
     pub src: NodeID,
     pub dst: NodeID,
-    pub EdgeType: Option<Tensor>,
+    pub EdgeType: String,
     pub features: Option<Tensor>,
     pub weight: f32 , 
     pub attributes: HashMap<String , AttributeValue>,
 }
 
 impl Edge{ 
-    pub fn new(id : EdgeID , src: NodeID , dst: NodeID ,  edge_type: Option<Tensor>){
+    pub fn new(id : EdgeID , src: NodeID , dst: NodeID ,  edge_type: String){
         Self(
             id , 
             src ,
@@ -142,6 +142,7 @@ pub enum GraphError {
     FeatureMismatch(String),
     ConversionError(String),
     TensorError(TensorError),
+    InvalidOperation(String),
 }
 
 impl From<TensorError> for GraphError {
@@ -873,13 +874,133 @@ pub fn adjacency_list_to_matrix(adj_list: &[Vec<usize>], n: Option<usize>) -> Ve
         }
     }
     
-    matrix
-    
+    matrix 
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    
+    #[test]
+    fn test_create_graph(){
+        let directed_graph = Graph::directed();
+        assert!(directed_graph.is_directed());
+        assert_eq!(directed_graph.node_count(), 0);
+        assert!(directed_graph.edge_count(),0);
+        
+        let undirected_graph = Graph::undirected();
+        assert!(!undirected_graph.is_directed());
+        assert_eq!(undirected_graph.node_count(), 0);
+        assert!(undirected_graph.edge_count(),0);
+    }
+    
+    #[test]
+    fn test_add_node(){
+        let mut graph = Graph::directed();
+        let node1 = Node::new(0 , "test".to_string());
+        
+        graph.add_node(node1).unwrap();
+        graph.add_node(node2).unwrap();
+        
+        assert_eq!(graph.node_count() , 2);
+        assert_eq!(graph.edge_count() , 1);
+        assert!(graph.nodes.contains_key(&node1.id));
+        assert!(graph.nodes.contains_key(&node2.id));
+    }
+    
+    #[test]
+    fn test_add_edge_directed() {
+        let mut graph = Graph::directed();
+        let node1 = Node::new(1, "test".to_string());
+        let node2 = Node::new(2, "test".to_string());
+        
+        graph.add_node(node1).unwrap();
+        graph.add_node(node2).unwrap();
+
+        let edge = Edge::new(0, 1, 2, "connects".to_string(), 1.0);
+        graph.add_edge(edge).unwrap();
+
+        assert_eq!(graph.edge_count(), 1);
+        assert_eq!(graph.degree(1, EdgeDirection::Outgoing), 1);
+        assert_eq!(graph.degree(1, EdgeDirection::Incoming), 0);
+        assert_eq!(graph.degree(2, EdgeDirection::Outgoing), 0);
+        assert_eq!(graph.degree(2, EdgeDirection::Incoming), 1);
+    }
+    
+    #[test]
+    fn test_add_edge_undirected() {
+        let mut graph = Graph::undirected();
+        let node1 = Node::new(1, "test".to_string());
+        let node2 = Node::new(2, "test".to_string());
+        
+        graph.add_node(node1).unwrap();
+        graph.add_node(node2).unwrap();
+
+        let edge = Edge::new(0, 1, 2, "connects".to_string(), 1.0);
+        graph.add_edge(edge).unwrap();
+
+        assert_eq!(graph.edge_count(), 1);
+        assert_eq!(graph.degree(1, EdgeDirection::Outgoing), 1);
+        assert_eq!(graph.degree(2, EdgeDirection::Outgoing), 1);
+        assert_eq!(graph.degree(1, EdgeDirection::Both), 1);
+        assert_eq!(graph.degree(2, EdgeDirection::Both), 1);
+    }
+    
+    #[test]
+    fn test_neighbors() {
+        let mut graph = Graph::directed();
+        
+        for i in 1..=3 {
+            graph.add_node(Node::new(i, "test".to_string())).unwrap();
+        }
+
+        graph.add_edge(Edge::new(0, 1, 2, "edge".to_string(), 1.0)).unwrap();
+        graph.add_edge(Edge::new(0, 1, 3, "edge".to_string(), 1.0)).unwrap();
+        graph.add_edge(Edge::new(0, 3, 1, "edge".to_string(), 1.0)).unwrap();
+
+        let outgoing_neighbors = graph.neighbors(1, EdgeDirection::Outgoing);
+        let incoming_neighbors = graph.neighbors(1, EdgeDirection::Incoming);
+        let all_neighbors = graph.neighbors(1, EdgeDirection::Both);
+
+        assert_eq!(outgoing_neighbors.len(), 2);
+        assert!(outgoing_neighbors.contains(&2));
+        assert!(outgoing_neighbors.contains(&3));
+
+        assert_eq!(incoming_neighbors.len(), 1);
+        assert!(incoming_neighbors.contains(&3));
+
+        assert_eq!(all_neighbors.len(), 2);
+        assert!(all_neighbors.contains(&2));
+        assert!(all_neighbors.contains(&3));
+    }
+    
+    #[test]
+     fn test_degree_calculation() {
+         let mut graph = Graph::directed();
+         
+         // Create nodes
+         for i in 1..=3 {
+             graph.add_node(Node::new(i, "test".to_string())).unwrap();
+         }
+ 
+         // Add edges: 1 -> 2, 1 -> 3, 3 -> 1
+         graph.add_edge(Edge::new(0, 1, 2, "edge".to_string(), 1.0)).unwrap();
+         graph.add_edge(Edge::new(0, 1, 3, "edge".to_string(), 1.0)).unwrap();
+         graph.add_edge(Edge::new(0, 3, 1, "edge".to_string(), 1.0)).unwrap();
+ 
+         assert_eq!(graph.degree(1, EdgeDirection::Outgoing), 2);
+         assert_eq!(graph.degree(1, EdgeDirection::Incoming), 1);
+         assert_eq!(graph.degree(1, EdgeDirection::Both), 3);
+ 
+         assert_eq!(graph.degree(2, EdgeDirection::Outgoing), 0);
+         assert_eq!(graph.degree(2, EdgeDirection::Incoming), 1);
+         assert_eq!(graph.degree(2, EdgeDirection::Both), 1);
+ 
+         assert_eq!(graph.degree(3, EdgeDirection::Outgoing), 1);
+         assert_eq!(graph.degree(3, EdgeDirection::Incoming), 1);
+         assert_eq!(graph.degree(3, EdgeDirection::Both), 2);
+     }
+    
 
     #[test]
     fn test_adjacency_list_to_matrix() {
