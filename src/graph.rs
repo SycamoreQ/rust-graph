@@ -18,7 +18,7 @@ pub enum EdgeDirection {
     Both,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq ,  Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     pub id: NodeID,
     pub node_type: String,
@@ -103,7 +103,7 @@ impl Edge {
 
 
 
-#[derive(Debug, Clone, PartialEq , Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AttributeValue {
     String(String),
     Integer(i64),
