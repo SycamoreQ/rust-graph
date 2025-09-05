@@ -609,19 +609,18 @@ impl GraphOps for Graph {
 
 pub struct RWSE{
     pub embedding_dim : usize, 
-    pub transition_matrix : Vec<Vec<f32>>,
-    pub adjacency_matrix : Vec<Vec<f32>>,
+    pub transition_matrix : Vec<Vec<f64>>,
+    pub adjacency_matrix : Vec<Vec<f64>>,
     pub node_count : usize,
 }
 
 impl RWSE{
-    pub fn new(embedding_dim: usize, transition_matrix: Vec<Vec<f32>>, adjacency_matrix: Vec<Vec<f32>>, node_count: usize, walk_length: usize) -> Self{
+    pub fn new(embedding_dim: usize, transition_matrix: Vec<Vec<f64>>, adjacency_matrix: Vec<Vec<f64>>, node_count: usize, walk_length: usize) -> Self{
         Self{
             embedding_dim,
             transition_matrix,
             adjacency_matrix,
             node_count,
-            walk_length
         }
     }
     
@@ -660,21 +659,19 @@ impl RWSE{
             result = &result.matmul(&self.transition_matrix.t());
         }
         
-        result
+        result as Vec<Vec<f64>>
     }
 }
 
 pub struct LapPE{
     pub embedding_dim: usize,
-    pub Laplacian_matrix: Vec<Vec<f64>>,
     pub node_count: usize,
 }
 
 impl LapPE{ 
-    pub fn new(embedding_dim: usize, Laplacian_matrix: Vec<Vec<f64>>, node_count: usize) -> Self {
+    pub fn new(embedding_dim: usize, node_count: usize) -> Self {
         LapPE {
             embedding_dim,
-            Laplacian_matrix,
             node_count,
         }
     }
@@ -682,7 +679,7 @@ impl LapPE{
     
     pub fn compute_laplacian(adj_matrix : Vec<Vec<f64>> , normalized: bool) -> Vec<Vec<f64>>{
         let n = adj_matrix.len();
-        let mut Laplacian_matrix = vec![vec![0.0f64;n*n]];
+        let mut laplacian_matrix = vec![vec![0.0f64;n*n]];
         let mut identity = vec![vec![0.0f64;n*n]];
         
         for i in 0..n{
@@ -693,24 +690,26 @@ impl LapPE{
             let degree = adj_matrix[i].iter().sum::<f64>();
             for j in 0..n{
                 if i == j {
-                    Laplacian_matrix[i][j] = degree;
+                    laplacian_matrix[i][j] = degree;
                 }
                 else{
-                    Laplacian_matrix[i][j] = degree - adj_matrix[i][j];
+                    laplacian_matrix[i][j] = degree - adj_matrix[i][j];
                 }
             }
+            laplacian_matrix;
             
             if normalized == true { 
                 for j in 0..n {
-                    Laplacian_matrix[i][j] = identity[i][j] - (sqrt(degree)) * (adj_matrix[i][j]) * (sqrt(degree));
+                    laplacian_matrix[i][j] = identity[i][j] - (sqrt(degree)) * (adj_matrix[i][j]) * (sqrt(degree));
                 }
             }
-            
-            Laplacian_matrix 
         }
+        return laplacian_matrix 
     }
     
     fn matrix_power(&self, k: usize) -> Vec<Vec<f64>> {
+        
+        let mut laplacian_matrix = vec![vec![0.0f64;n*n]];
         if k == 0 {
             // Return identity matrix
             let mut identity = vec![vec![0.0; self.node_count]; self.node_count];
