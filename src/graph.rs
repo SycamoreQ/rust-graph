@@ -1,13 +1,12 @@
 use std::sync::Arc;
-use candle::core::{Tensor , Device , Dtype};
-use serde::json;
-use std::collections::{HashMap , HashSet}; 
+use candle_core::{Tensor, Device, DType};
+use serde::{Serialize, Deserialize};
+use std::collections::{HashMap, HashSet, VecDeque}; 
 use rayon::prelude::*;
-use nalgebra::{sqrt};
 
-pub type NodeID  = u32;
+pub type NodeID = u32;
 pub type EdgeID = u32;
-pub type GraphID = u32 ; 
+pub type GraphID = u32; 
 pub type SubgraphID = u32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,23 +16,22 @@ pub enum EdgeDirection {
     Both,
 }
 
-
-#[derive(Debug , Clone , PartialEq , HashMap , Eq)]
-pub struct Node{
-    pub id : NodeID,
-    pub nodeType: String,
-    pub attributes : HashMap<String , AttributeValue>,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Node {
+    pub id: NodeID,
+    pub node_type: String,
+    pub attributes: HashMap<String, AttributeValue>,
     pub features: Option<Tensor>,
 }
 
 impl Node {
-    pub fn new(id : NodeID , node_type : String) {
-        Self(
-            id ,
-            node_type ,
-            HashMap::new(),
-            None,
-        )
+    pub fn new(id: NodeID, node_type: String) -> Self {
+        Self {
+            id,
+            node_type,
+            attributes: HashMap::new(),
+            features: None,
+        }
     }
     
     pub fn with_features(mut self, features: Tensor) -> Self {
@@ -51,28 +49,28 @@ impl Node {
     }
 }
 
-#[derive(Debug , Clone , PartialEq , HashMap , Eq)]
-pub struct Edge{
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Edge {
     pub id: EdgeID,
     pub src: NodeID,
     pub dst: NodeID,
-    pub EdgeType: String,
+    pub edge_type: String,
     pub features: Option<Tensor>,
-    pub weight: f32 , 
-    pub attributes: HashMap<String , AttributeValue>,
+    pub weight: f32,
+    pub attributes: HashMap<String, AttributeValue>,
 }
 
-impl Edge{ 
-    pub fn new(id : EdgeID , src: NodeID , dst: NodeID ,  edge_type: String){
-        Self(
-            id , 
-            src ,
-            dst ,
+impl Edge { 
+    pub fn new(id: EdgeID, src: NodeID, dst: NodeID, edge_type: String) -> Self {
+        Self {
+            id,
+            src,
+            dst,
             edge_type,
-            None,
-            1.0,
-            HashMap::new(),
-        )   
+            features: None,
+            weight: 1.0,
+            attributes: HashMap::new(),
+        }   
     }
     
     pub fn with_features(mut self, features: Tensor) -> Self {
@@ -97,8 +95,8 @@ impl Edge{
     pub fn reverse(&self) -> Self {
         Edge {
             id: self.id,
-            source: self.target,
-            target: self.source,
+            src: self.dst,
+            dst: self.src,
             edge_type: self.edge_type.clone(),
             features: self.features.clone(),
             weight: self.weight,
@@ -107,7 +105,7 @@ impl Edge{
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AttributeValue {
     String(String),
     Integer(i64),
@@ -136,19 +134,13 @@ impl From<Vec<f32>> for AttributeValue {
 /// Error types for graph operations
 #[derive(Debug)]
 pub enum GraphError {
-    NodeNotFound(NodeId),
-    EdgeNotFound(EdgeId),
+    NodeNotFound(NodeID),
+    EdgeNotFound(EdgeID),
     InvalidEdge(String),
     FeatureMismatch(String),
     ConversionError(String),
-    TensorError(TensorError),
+    TensorError(String),
     InvalidOperation(String),
-}
-
-impl From<TensorError> for GraphError {
-    fn from(e: TensorError) -> Self {
-        GraphError::TensorError(e)
-    }
 }
 
 impl std::fmt::Display for GraphError {
@@ -160,44 +152,44 @@ impl std::fmt::Display for GraphError {
             GraphError::FeatureMismatch(msg) => write!(f, "Feature mismatch: {}", msg),
             GraphError::ConversionError(msg) => write!(f, "Conversion error: {}", msg),
             GraphError::TensorError(e) => write!(f, "Tensor error: {}", e),
+            GraphError::InvalidOperation(msg) => write!(f, "Invalid operation: {}", msg),
         }
     }
 }
 
-pub trait GraphOps{
-    pub fn add_node(&self , node : Node) -> Result<() , GraphError>;
-    pub fn add_edge(&self , edge : Edge) -> Result<() , GraphError>;
-    pub fn remove_node(&self , node : NodeId) -> Result<() , GraphError>;
-    pub fn remove_edge(&self , edge : EdgeId) -> Result<() , GraphError>;
-    pub fn update_node(&self , node : NodeId , new_node : Node) -> Result<() , GraphError>;
-    pub fn update_edge(&self , edge : EdgeId , new_edge : Edge) -> Result<() , GraphError>;
-    pub fn get_node(&self , node : NodeId) -> Result<Node , GraphError>;
-    pub fn get_edge(&self , edge : EdgeId) -> Result<Edge , GraphError>;
-    pub fn neighbors(&self , node : NodeId , direction: EdgeDirection) -> Result<Vec<NodeId> , GraphError>;
-    pub fn node_count(&self) -> Result<usize , GraphError>;
-    pub fn edge_count(&self) -> Result<usize , GraphError>;
-    pub fn to_undirected(&mut self) -> Result<Self , GraphError>;
+impl std::error::Error for GraphError {}
+
+pub trait GraphOps {
+    fn add_node(&mut self, node: Node) -> Result<(), GraphError>;
+    fn add_edge(&mut self, edge: Edge) -> Result<(), GraphError>;
+    fn remove_node(&mut self, node_id: NodeID) -> Result<Node, GraphError>;
+    fn remove_edge(&mut self, edge_id: EdgeID) -> Result<Edge, GraphError>;
+    fn update_node(&mut self, node_id: NodeID, new_node: Node) -> Result<(), GraphError>;
+    fn update_edge(&mut self, edge_id: EdgeID, new_edge: Edge) -> Result<(), GraphError>;
+    fn get_node(&self, node_id: NodeID) -> Result<&Node, GraphError>;
+    fn get_edge(&self, edge_id: EdgeID) -> Result<&Edge, GraphError>;
+    fn neighbors(&self, node_id: NodeID, direction: EdgeDirection) -> Result<Vec<NodeID>, GraphError>;
+    fn node_count(&self) -> usize;
+    fn edge_count(&self) -> usize;
 }
 
-#[derive(Serialize , Debug)]
-pub struct Graph{
-    pub id : GraphID,
-    pub nodes: HashMap<NodeID , Node> ,
-    pub edges: HashMap<EdgeID , Edge> ,
-    pub adjacency_list: HashMap<NodeID , Vec<EdgeID>> ,
-    pub reverse_adjacency: HashMap<NodeID , Vec<EdgeID>> ,
-    pub edge_list: HashMap<EdgeID , Vec<EdgeID>>,
-    pub node_list: Vec<NodeId>,
-    pub edge_list: Vec<EdgeId>,
+#[derive(Serialize, Debug)]
+pub struct Graph {
+    pub id: GraphID,
+    pub nodes: HashMap<NodeID, Node>,
+    pub edges: HashMap<EdgeID, Edge>,
+    pub adjacency_list: HashMap<NodeID, Vec<EdgeID>>,
+    pub reverse_adjacency: HashMap<NodeID, Vec<EdgeID>>,
+    pub node_types: HashMap<String, Vec<NodeID>>,
+    pub edge_types: HashMap<String, Vec<EdgeID>>,
     pub attributes: HashMap<String, AttributeValue>,
     pub is_directed: bool,
-    pub next_node_id: NodeId,
-    pub next_edge_id: EdgeId,
+    pub next_node_id: NodeID,
+    pub next_edge_id: EdgeID,
 }
 
-impl Graph{
-    
-    pub fn new(id: GraphId, is_directed: bool) -> Self {
+impl Graph {
+    pub fn new(id: GraphID, is_directed: bool) -> Self {
         Self {
             id,
             nodes: HashMap::new(),
@@ -208,108 +200,91 @@ impl Graph{
             edge_types: HashMap::new(),
             is_directed,
             attributes: HashMap::new(),
-            next_node_id: 0,
-            next_edge_id: 0,
+            next_node_id: 1,
+            next_edge_id: 1,
         }
     }
     
     pub fn directed() -> Self {
-        Self::new(GraphId::new(), true)
+        Self::new(0, true)
     }
     
     pub fn undirected() -> Self {
-        Self::new(GraphId::new(), false)
+        Self::new(0, false)
     }
     
-    pub fn degree(&self, node_id: NodeId, direction: EdgeDirection) -> usize {
-          match direction {
-              EdgeDirection::Outgoing => self.adjacency_list.get(&node_id).map_or(0, |v| v.len()),
-              EdgeDirection::Incoming => self.reverse_adjacency.get(&node_id).map_or(0, |v| v.len()),
-              EdgeDirection::Both => {
-                  let out_degree = self.adjacency_list.get(&node_id).map_or(0, |v| v.len());
-                  let in_degree = self.reverse_adjacency.get(&node_id).map_or(0, |v| v.len());
-                  if self.is_directed {
-                      out_degree + in_degree
-                  } else {
-                      out_degree // For undirected graphs, both lists are the same
-                  }
-              }
-          }
-      }
-      
-    pub fn density(&self , node_id: NodeID , edge_id: EdgeID ,  direction: EdgeDirection) -> usize{
-        match direction{
-            EdgeDirection::Outgoing => {
-                let m = self.adjacency_list.get(&node_id).map_or(0, |v| v.len());
-                let n = self.adjacency_list.len();
-                
-                let D = (2*m)/(n)*(n-1);
-                D as f64 / (n*(n-1) as f64)
-            }
-            
-            EdgeDirection::Incoming => {
-                let m = self.reverse_adjacency.get(&node_id).map_or(0, |v| v.len());
-                let n = self.adjacency_list.len();
-                
-                let D = (2*m)/(n)*(n-1);
-                D as f64 / (n*(n-1) as f64)
-            }
-            
+    pub fn degree(&self, node_id: NodeID, direction: EdgeDirection) -> usize {
+        match direction {
+            EdgeDirection::Outgoing => self.adjacency_list.get(&node_id).map_or(0, |v| v.len()),
+            EdgeDirection::Incoming => self.reverse_adjacency.get(&node_id).map_or(0, |v| v.len()),
             EdgeDirection::Both => {
-                let m = self.adjacency_list.get(&node_id).map_or(0, |v| v.len());
-                let n = self.adjacency_list.len();
-                
-                if self.is_directed{
-                    let m = self.reverse_adjacency.get(&node_id).map_or(0, |v| v.len());
-                    let n = self.adjacency_list.len();
-                    
-                    let D = (m)/(n)*(n-1);
-                    D as f64 / (n*(n-1) as f64)
-                }else{
-                    let D = (2*m)/(n)*(n-1);
-                    D as f64 / (n*(n-1) as f64)
+                let out_degree = self.adjacency_list.get(&node_id).map_or(0, |v| v.len());
+                let in_degree = self.reverse_adjacency.get(&node_id).map_or(0, |v| v.len());
+                if self.is_directed {
+                    out_degree + in_degree
+                } else {
+                    out_degree // For undirected graphs, both lists are the same
                 }
             }
         }
     }
     
-    pub fn k_hop(&self , node_id: NodeID , k:usize) -> HashSet<NodeID>{
-        let current = HashSet::new();
+    pub fn density(&self) -> f64 {
+        let n = self.nodes.len() as f64;
+        let m = self.edges.len() as f64;
+        
+        if n <= 1.0 {
+            return 0.0;
+        }
+        
+        if self.is_directed {
+            m / (n * (n - 1.0))
+        } else {
+            (2.0 * m) / (n * (n - 1.0))
+        }
+    }
+    
+    pub fn k_hop(&self, node_id: NodeID, k: usize) -> HashSet<NodeID> {
         let mut visited = HashSet::new();
-        let mut queue = VecDeque::new();
-        queue.push_back(node_id);
+        let mut current_level = HashSet::new();
+        current_level.insert(node_id);
         visited.insert(node_id);
         
         for _ in 0..k {
-            let mut next = HashSet::new();
-            while let Some(node) = queue.pop_front() {
-                for neighbor in self.adjacency_list.get(&node).unwrap_or(&vec![]) {
-                    if !visited.contains(neighbor) {
-                        next.insert(*neighbor);
+            let mut next_level = HashSet::new();
+            for &node in &current_level {
+                if let Some(edge_ids) = self.adjacency_list.get(&node) {
+                    for &edge_id in edge_ids {
+                        if let Some(edge) = self.edges.get(&edge_id) {
+                            if !visited.contains(&edge.dst) {
+                                next_level.insert(edge.dst);
+                            }
+                        }
                     }
                 }
             }
-            queue.extend(next.difference(&visited));
-            visited.extend(next);
+            visited.extend(&next_level);
+            current_level = next_level;
         }
         
+        visited.remove(&node_id); // Remove starting node
         visited
     }
     
-    pub fn subgraph(&self, node_ids: &[NodeId]) -> Result<Graph, GraphError> {
+    pub fn subgraph(&self, node_ids: &[NodeID]) -> Result<Graph, GraphError> {
         let mut sub_graph = Graph::new(self.id + 1, self.is_directed);
-        let node_set: HashSet<NodeId> = node_ids.iter().cloned().collect();
+        let node_set: HashSet<NodeID> = node_ids.iter().cloned().collect();
 
         // Add nodes
         for &node_id in node_ids {
-            if let Some(node) = self.nodes.get(&node_id) {
+            if let Ok(node) = self.get_node(node_id) {
                 sub_graph.add_node(node.clone())?;
             }
         }
 
         // Add edges between included nodes
         for edge in self.edges.values() {
-            if node_set.contains(&edge.source) && node_set.contains(&edge.target) {
+            if node_set.contains(&edge.src) && node_set.contains(&edge.dst) {
                 sub_graph.add_edge(edge.clone())?;
             }
         }
@@ -318,75 +293,82 @@ impl Graph{
     }
     
     pub fn to_coo(&self) -> Result<(Tensor, Tensor, Option<Tensor>), GraphError> {
-         let num_edges = if self.is_directed { 
-             self.edges.len() 
-         } else { 
-             self.edges.len() * 2 // Each undirected edge becomes two directed edges
-         };
- 
-         let mut edge_indices = Vec::with_capacity(num_edges * 2);
-         let mut edge_weights = Vec::with_capacity(num_edges);
-         let mut edge_features = Vec::new();
-         
-         let node_to_idx: HashMap<NodeId, usize> = self.nodes.keys()
-             .enumerate()
-             .map(|(i, &id)| (id, i))
-             .collect();
- 
-         for edge in self.edges.values() {
-             let src_idx = *node_to_idx.get(&edge.source)
-                 .ok_or(GraphError::NodeNotFound(edge.source))?;
-             let tgt_idx = *node_to_idx.get(&edge.target)
-                 .ok_or(GraphError::NodeNotFound(edge.target))?;
- 
-             edge_indices.extend_from_slice(&[src_idx, tgt_idx]);
-             edge_weights.push(edge.weight);
- 
-             if let Some(ref features) = edge.features {
-                 edge_features.push(features.clone());
-             }
- 
-             // For undirected graphs, add reverse edge
-             if !self.is_directed && edge.source != edge.target {
-                 edge_indices.extend_from_slice(&[tgt_idx, src_idx]);
-                 edge_weights.push(edge.weight);
-                 if let Some(ref features) = edge.features {
-                     edge_features.push(features.clone());
-                 }
-             }
-         }
- 
-         let edge_index = Tensor::from_data(edge_indices, &[2, num_edges])?;
-         let edge_weight = Tensor::from_data(edge_weights, &[num_edges])?;
-         
-         let edge_attr = if !edge_features.is_empty() {
-             // Stack edge features - this would need proper tensor stacking implementation
-             Some(edge_features[0].clone()) // Simplified for demo
-         } else {
-             None
-         };
- 
-         Ok((edge_index, edge_weight, edge_attr))
-     }
-     
-    
+        let num_edges = if self.is_directed { 
+            self.edges.len() 
+        } else { 
+            self.edges.len() * 2 // Each undirected edge becomes two directed edges
+        };
 
-    pub fn Laplacian(&self , normalized: bool) -> Result<Tensor , GraphError>{
-        let (edge_index , edge_weight , _ ) = self.to_coo()?;
+        let mut edge_indices = Vec::with_capacity(num_edges * 2);
+        let mut edge_weights = Vec::with_capacity(num_edges);
+        let mut edge_features = Vec::new();
+        
+        let node_to_idx: HashMap<NodeID, usize> = self.nodes.keys()
+            .enumerate()
+            .map(|(i, &id)| (id, i))
+            .collect();
+
+        for edge in self.edges.values() {
+            let src_idx = *node_to_idx.get(&edge.src)
+                .ok_or(GraphError::NodeNotFound(edge.src))?;
+            let tgt_idx = *node_to_idx.get(&edge.dst)
+                .ok_or(GraphError::NodeNotFound(edge.dst))?;
+
+            edge_indices.extend_from_slice(&[src_idx as f32, tgt_idx as f32]);
+            edge_weights.push(edge.weight);
+
+            if let Some(ref features) = edge.features {
+                edge_features.push(features.clone());
+            }
+
+            // For undirected graphs, add reverse edge
+            if !self.is_directed && edge.src != edge.dst {
+                edge_indices.extend_from_slice(&[tgt_idx as f32, src_idx as f32]);
+                edge_weights.push(edge.weight);
+                if let Some(ref features) = edge.features {
+                    edge_features.push(features.clone());
+                }
+            }
+        }
+
+        let edge_index = Tensor::from_slice(&edge_indices, (2, num_edges), &Device::Cpu)
+            .map_err(|e| GraphError::TensorError(format!("{:?}", e)))?;
+        let edge_weight = Tensor::from_slice(&edge_weights, (num_edges,), &Device::Cpu)
+            .map_err(|e| GraphError::TensorError(format!("{:?}", e)))?;
+        
+        let edge_attr = if !edge_features.is_empty() {
+            Some(edge_features[0].clone()) // Simplified for demo
+        } else {
+            None
+        };
+
+        Ok((edge_index, edge_weight, edge_attr))
+    }
+
+    pub fn laplacian(&self, normalized: bool) -> Result<Tensor, GraphError> {
+        let (edge_index, edge_weight, _) = self.to_coo()?;
         let num_nodes = self.nodes.len();
         
         let mut adjacency_matrix = vec![0.0f32; num_nodes * num_nodes];
-        let edge_indices = edge_index.to_vec()?;
-        let weights = edge_weight.to_vec()?;
+        let edge_indices = edge_index.to_vec2::<f32>()
+            .map_err(|e| GraphError::TensorError(format!("{:?}", e)))?;
+        let weights = edge_weight.to_vec1::<f32>()
+            .map_err(|e| GraphError::TensorError(format!("{:?}", e)))?;
         
-        for (i , chunk) in edge_indices.chunks(2).enumerate(){
-            let src = chunk[0];
-            let tgt = chunk[1];
-            adjacency_matrix[src * num_nodes + tgt] += weights[i];
-            adjacency_matrix[tgt * num_nodes + src] += weights[i];
+        for (i, edge_pair) in edge_indices.iter().enumerate() {
+            if edge_pair.len() >= 2 {
+                let src = edge_pair[0] as usize;
+                let tgt = edge_pair[1] as usize;
+                if src < num_nodes && tgt < num_nodes && i < weights.len() {
+                    adjacency_matrix[src * num_nodes + tgt] += weights[i];
+                    if !self.is_directed {
+                        adjacency_matrix[tgt * num_nodes + src] += weights[i];
+                    }
+                }
+            }
         }
         
-        let mut degree = vec![0.0f64; num_nodes];
+        let mut degree = vec![0.0f32; num_nodes];
         for i in 0..num_nodes {
             for j in 0..num_nodes {
                 degree[i] += adjacency_matrix[i * num_nodes + j];
@@ -395,12 +377,12 @@ impl Graph{
         
         let mut laplacian = vec![0.0f32; num_nodes * num_nodes];
         
-        for i in 0..num_nodes{
-            laplacian[i*num_nodes + i] += degree[i] - adjacency_matrix[i*num_nodes + i];
+        for i in 0..num_nodes {
+            laplacian[i * num_nodes + i] = degree[i];
             
             for j in 0..num_nodes {
-                if i != j{
-                    laplacian[i*num_nodes + j] += adjacency_matrix[i*num_nodes + j];
+                if i != j {
+                    laplacian[i * num_nodes + j] = -adjacency_matrix[i * num_nodes + j];
                 }
             }
         }
@@ -410,61 +392,61 @@ impl Graph{
                 let deg_sqrt = degree[i].sqrt();
                 if deg_sqrt > 0.0 {
                     for j in 0..num_nodes {
-                        laplacian[i * num_nodes + j] /= deg_sqrt * degree[j].sqrt();
+                        let deg_j_sqrt = degree[j].sqrt();
+                        if deg_j_sqrt > 0.0 {
+                            laplacian[i * num_nodes + j] /= deg_sqrt * deg_j_sqrt;
+                        }
                     }
                 }
             }
         }
 
-        Tensor::from_data(laplacian, &[num_nodes, num_nodes])
+        Tensor::from_slice(&laplacian, (num_nodes, num_nodes), &Device::Cpu)
+            .map_err(|e| GraphError::TensorError(format!("{:?}", e)))
+    }
+}
+
+impl GraphOps for Graph {
+    fn add_node(&mut self, mut node: Node) -> Result<(), GraphError> {
+        if node.id == 0 {
+            node.id = self.next_node_id;
+            self.next_node_id += 1;
+        }
+
+        // Update node type index
+        self.node_types.entry(node.node_type.clone())
+            .or_default()
+            .push(node.id);
+
+        self.adjacency_list.entry(node.id).or_default();
+        self.reverse_adjacency.entry(node.id).or_default();
+        self.nodes.insert(node.id, node);
+        
+        Ok(())
     }
     
-    impl GraphOps for Graph{
-        
-        fn add_node(&mut self , mut node : Node) -> Result<() , GraphError>{
-            if node.id == 0 {
-                node.id = self.next_node_id;
-                self.next_node_id += 1;
-            }
-    
-            // Update node type index
-            self.node_types.entry(node.node_type.clone())
-                .or_default()
-                .push(node.id);
-    
-            self.nodes.insert(node.id, node);
-            self.adjacency_list.entry(node.id).or_default();
-            self.reverse_adjacency.entry(node.id).or_default();
-            
-            Ok(())
-        }
-        
-        fn add_edge(&mut self, src: u32, dst: u32) -> Result<(), GraphError> {
-            if !self.nodes.contains_key(&src) || !self.nodes.contains_key(&dst) {
-                return Err(GraphError::NodeNotFound);
-            }
-    
-            self.adjacency_list.get_mut(&src).unwrap().push(dst);
-            self.reverse_adjacency.get_mut(&dst).unwrap().push(src);
-            
-            Ok(())
-        }
-    }
-    
-    pub fn add_edge(&mut self , edge : Edge) -> Result<() , GraphError>{
-        
+    fn add_edge(&mut self, mut edge: Edge) -> Result<(), GraphError> {
         if !self.nodes.contains_key(&edge.src) || !self.nodes.contains_key(&edge.dst) {
-            return Err(GraphError::NodeNotFound);
+            return Err(GraphError::NodeNotFound(edge.src));
         }
-    
-        self.adjacency_list.get_mut(&edge.src).unwrap().push(edge.dst);
-        self.reverse_adjacency.get_mut(&edge.dst).unwrap().push(edge.src);
+
+        if edge.id == 0 {
+            edge.id = self.next_edge_id;
+            self.next_edge_id += 1;
+        }
+
+        self.adjacency_list.entry(edge.src)
+            .or_default()
+            .push(edge.id);
+        self.reverse_adjacency.entry(edge.dst)
+            .or_default()
+            .push(edge.id);
         
-        if !self.is_directed && edge.source != edge.target {
-            self.adjacency_list.entry(edge.target)
+        if !self.is_directed && edge.src != edge.dst {
+            self.adjacency_list.entry(edge.dst)
                 .or_default()
                 .push(edge.id);
-            self.reverse_adjacency.entry(edge.source)
+            self.reverse_adjacency.entry(edge.src)
                 .or_default()
                 .push(edge.id);
         }
@@ -477,9 +459,10 @@ impl Graph{
         self.edges.insert(edge.id, edge);
         Ok(())
     }
-    
-    pub fn remove_node(&mut self , node_id : NodeID , edge_id : EdgeID) -> Result<Node , GraphError>{
-        let node = self.nodes.remove(&node_id).ok_or(GraphError::NodeNotFound)?; 
+
+    fn remove_node(&mut self, node_id: NodeID) -> Result<Node, GraphError> {
+        let node = self.nodes.remove(&node_id)
+            .ok_or(GraphError::NodeNotFound(node_id))?; 
         
         let mut edges_to_remove = Vec::new();
         
@@ -491,27 +474,29 @@ impl Graph{
             edges_to_remove.extend(incoming);
         }
         
-        for edges in edges_to_remove{
-            self.edges.remove(edge_id);
+        for edge_id in edges_to_remove {
+            self.edges.remove(&edge_id);
         }
         
-        Ok(Node)
-        
+        Ok(node)
     }
     
-    pub fn remove_edge(&mut self , edge_id : EdgeID) -> Result<Edge , GraphError> {
-        let edge = self.edges.remove(&edge_id).ok_or(GraphError::EdgeNotFound)?;
+    fn remove_edge(&mut self, edge_id: EdgeID) -> Result<Edge, GraphError> {
+        let edge = self.edges.remove(&edge_id)
+            .ok_or(GraphError::EdgeNotFound(edge_id))?;
         
-        self.adjacency_list.get_mut(&edge.src).unwrap().retain(|&x| x != edge_id);
-        self.reverse_adjacency.get_mut(&edge.dst).unwrap().retain(|&x| x != edge_id);
+        if let Some(adj_list) = self.adjacency_list.get_mut(&edge.src) {
+            adj_list.retain(|&x| x != edge_id);
+        }
+        if let Some(rev_adj_list) = self.reverse_adjacency.get_mut(&edge.dst) {
+            rev_adj_list.retain(|&x| x != edge_id);
+        }
         
-        self.edge_types.get_mut(&edge.edge_type).unwrap().retain(|&x| x != edge_id);
-        
-        if !self.is_directed && edge.source != edge.target {
-            if let Some(adj_list) = self.adjacency_list.get_mut(&edge.target) {
+        if !self.is_directed && edge.src != edge.dst {
+            if let Some(adj_list) = self.adjacency_list.get_mut(&edge.dst) {
                 adj_list.retain(|&id| id != edge_id);
             }
-            if let Some(rev_adj_list) = self.reverse_adjacency.get_mut(&edge.source) {
+            if let Some(rev_adj_list) = self.reverse_adjacency.get_mut(&edge.src) {
                 rev_adj_list.retain(|&id| id != edge_id);
             }
         }
@@ -526,16 +511,32 @@ impl Graph{
 
         Ok(edge)
     }
-    
-    pub fn get_node(&self , node_id: NodeID) -> Result<Node , GraphError>{
-        self.nodes.get(&node_id).ok_or(GraphError::NodeNotFound)
+
+    fn update_node(&mut self, node_id: NodeID, new_node: Node) -> Result<(), GraphError> {
+        if !self.nodes.contains_key(&node_id) {
+            return Err(GraphError::NodeNotFound(node_id));
+        }
+        self.nodes.insert(node_id, new_node);
+        Ok(())
+    }
+
+    fn update_edge(&mut self, edge_id: EdgeID, new_edge: Edge) -> Result<(), GraphError> {
+        if !self.edges.contains_key(&edge_id) {
+            return Err(GraphError::EdgeNotFound(edge_id));
+        }
+        self.edges.insert(edge_id, new_edge);
+        Ok(())
     }
     
-    pub fn get_edge(&self , edge_id: EdgeID) -> Result<Edge , GraphError>{
-        self.edges.get(&edge_id).ok_or(GraphError::EdgeNotFound)
+    fn get_node(&self, node_id: NodeID) -> Result<&Node, GraphError> {
+        self.nodes.get(&node_id).ok_or(GraphError::NodeNotFound(node_id))
     }
     
-    fn neighbors(&self, node_id: NodeId, direction: EdgeDirection) -> Vec<NodeId> {
+    fn get_edge(&self, edge_id: EdgeID) -> Result<&Edge, GraphError> {
+        self.edges.get(&edge_id).ok_or(GraphError::EdgeNotFound(edge_id))
+    }
+    
+    fn neighbors(&self, node_id: NodeID, direction: EdgeDirection) -> Result<Vec<NodeID>, GraphError> {
         let mut neighbors = Vec::new();
 
         match direction {
@@ -543,7 +544,7 @@ impl Graph{
                 if let Some(edge_ids) = self.adjacency_list.get(&node_id) {
                     for &edge_id in edge_ids {
                         if let Some(edge) = self.edges.get(&edge_id) {
-                            neighbors.push(edge.target);
+                            neighbors.push(edge.dst);
                         }
                     }
                 }
@@ -552,7 +553,7 @@ impl Graph{
                 if let Some(edge_ids) = self.reverse_adjacency.get(&node_id) {
                     for &edge_id in edge_ids {
                         if let Some(edge) = self.edges.get(&edge_id) {
-                            neighbors.push(edge.source);
+                            neighbors.push(edge.src);
                         }
                     }
                 }
@@ -563,7 +564,7 @@ impl Graph{
                 if let Some(edge_ids) = self.adjacency_list.get(&node_id) {
                     for &edge_id in edge_ids {
                         if let Some(edge) = self.edges.get(&edge_id) {
-                            neighbor_set.insert(edge.target);
+                            neighbor_set.insert(edge.dst);
                         }
                     }
                 }
@@ -571,7 +572,7 @@ impl Graph{
                 if let Some(edge_ids) = self.reverse_adjacency.get(&node_id) {
                     for &edge_id in edge_ids {
                         if let Some(edge) = self.edges.get(&edge_id) {
-                            neighbor_set.insert(edge.source);
+                            neighbor_set.insert(edge.src);
                         }
                     }
                 }
@@ -580,7 +581,7 @@ impl Graph{
             }
         }
 
-        neighbors
+        Ok(neighbors)
     }
 
     fn node_count(&self) -> usize {
@@ -589,276 +590,6 @@ impl Graph{
 
     fn edge_count(&self) -> usize {
         self.edges.len()
-    }
-}
-
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct GraphBatch{
-    pub graphs: Vec<Graph>,
-    pub node_features: Tensor ,
-    pub edge_features: Option<Tensor> ,
-    pub edge_indices: Tensor ,
-    pub edge_weights: Option<Tensor>, 
-    pub batch_vertices: Option<Tensor>,
-    pub ptr: Vec<usize>,
-    pub edge_ptr: Vec<usize>,
-}
-
-impl GraphBatch{
-    pub fn new() -> Self {
-        GraphBatch{
-            graphs: Vec::new(),
-            node_features: Tensor::new(),
-            edge_features: None,
-            edge_indices: Tensor::new(),
-            edge_weights: None,
-            batch_vertices: None,
-            ptr: Vec::new(),
-            edge_ptr: Vec::new(),
-        }
-    }
-    
-    pub fn from_graphs(&self , graphs: Vec<Graph>) -> Self {
-        let mut batch = GraphBatch::new();
-        batch.graphs = graphs;
-        batch.build_batch_tensors()?;
-        batch
-    }
-    
-    pub fn batch_size(&self) -> usize {
-        self.graphs.len()
-    }
-    
-    pub fn total_node(&self) -> usize {
-        self.graphs.iter().map(|g| g.node_count()).sum()
-    }
-    
-    pub fn total_edge(&self) -> usize {
-        self.graphs.iter().map(|g| g.edge_count()).sum()
-    }
-    
-    pub fn total_features(&self) -> usize {
-        self.node_features.size(0)
-    }
-    
-    fn build_batch_tensors(&mut self) -> Result<(), GraphError> {
-        let mut all_node_features = Vec::new();
-        let mut all_edge_indices = Vec::new();
-        let mut all_edge_features = Vec::new();
-        let mut all_edge_weights = Vec::new();
-        
-        let mut node_offset = 0;
-        let mut edge_offset = 0;
-        
-        self.ptr.clear();
-        self.edge_ptr.clear();
-        self.batch_indices.clear();
-        
-        self.ptr.push(0);
-        self.edge_ptr.push(0);
-        self.batch_indices.push(0);
-
-        for graph in &self.graphs {
-            let (edge_index, edge_weight, edge_feat) = graph.to_coo()?;
-            
-            // Collect node features
-            for node in graph.nodes.values() {
-                if let Some(ref features) = node.features {
-                    let feat_vec = features.to_vec()?;
-                    all_node_features.extend(feat_vec);
-                }
-            }
-            
-            // Collect edge indices (offset by current node count)
-            let edge_indices_vec = edge_index.to_vec()?;
-            for chunk in edge_indices_vec.chunks(2) {
-                all_edge_indices.push(chunk[0] + node_offset as f32);
-                all_edge_indices.push(chunk[1] + node_offset as f32);
-            }
-            
-            // Collect edge weights
-            let weights = edge_weight.to_vec()?;
-            all_edge_weights.extend(weights.clone());
-            
-            // Collect edge features if present
-            if let Some(feat) = edge_feat {
-                let feat_vec = feat.to_vec()?;
-                all_edge_features.extend(feat_vec);
-            }
-
-            node_offset += graph.node_count();
-            edge_offset += weights.len();
-            
-            self.ptr.push(node_offset);
-            self.edge_ptr.push(edge_offset);
-            self.batch_indices.push(node_offset);
-        }
-
-        // Build batch tensors
-        if !all_node_features.is_empty() {
-            let feature_dim = if !self.graphs.is_empty() && !self.graphs[0].nodes.is_empty() {
-                self.graphs[0].nodes.values().next().unwrap()
-                    .feature_dim().unwrap_or(1)
-            } else { 1 };
-            
-            self.node_features = Tensor::from_data(
-                all_node_features, 
-                &[node_offset, feature_dim]
-            )?;
-        }
-
-        if !all_edge_indices.is_empty() {
-            self.edge_indices = Tensor::from_data(
-                all_edge_indices,
-                &[2, edge_offset]
-            )?;
-        }
-
-        if !all_edge_weights.is_empty() {
-            self.edge_weights = Some(Tensor::from_data(
-                all_edge_weights,
-                &[edge_offset]
-            )?);
-        }
-
-        if !all_edge_features.is_empty() {
-            // Assume single feature dimension for simplicity
-            self.edge_features = Some(Tensor::from_data(
-                all_edge_features,
-                &[edge_offset, 1]
-            )?);
-        }
-
-        Ok(())
-    }
-}
-
-pub struct RWSE{
-    pub embedding_dim : usize, 
-    pub transition_matrix : Vec<Vec<f32>>,
-    pub adjacency_matrix : Vec<Vec<f32>>,
-    pub node_count : usize,
-}
-
-impl RWSE{
-    pub fn new(embedding_dim: usize, transition_matrix: Vec<Vec<f32>>, adjacency_matrix: Vec<Vec<f32>>, node_count: usize, walk_length: usize) -> Self{
-        Self{
-            embedding_dim,
-            transition_matrix,
-            adjacency_matrix,
-            node_count,
-            walk_length
-        }
-    }
-    
-    pub fn comp_transition_matrix(adj_matrix : &[Vec<f64>]) -> Vec<Vec<f64>>{
-        let n = adj_matrix.len();
-        let mut transition_matrix =  vec![vec![0.0f64 ; n * n ]];
-        
-        for i in 0..n {
-            let degree  = adj_matrix[i].iter().sum::<f64>();
-            for j in 0..n {
-                transition_matrix[i][j] = adj_matrix[i][j] / degree;
-            }
-        }
-        
-        transition_matrix
-    } 
-    
-    fn matrix_power(&self, k: usize) -> Vec<Vec<f64>> {
-        if k == 0 {
-            // Return identity matrix
-            let mut identity = vec![vec![0.0; self.node_count]; self.node_count];
-            for i in 0..self.node_count {
-                identity[i][i] = 1.0;
-            }
-            return identity;
-        }
-        
-        if k == 1 {
-            return self.transition_matrix.clone();
-        }
-        
-        // Use repeated matrix multiplication
-        let mut result = self.transition_matrix.clone();
-        
-        for _ in 2..=k {
-            result = &result.matmul(&self.transition_matrix.t());
-        }
-        
-        result
-    }
-}
-
-pub struct LapPE{
-    pub embedding_dim: usize,
-    pub Laplacian_matrix: Vec<Vec<f64>>,
-    pub node_count: usize,
-}
-
-impl LapPE{ 
-    pub fn new(embedding_dim: usize, Laplacian_matrix: Vec<Vec<f64>>, node_count: usize) -> Self {
-        LapPE {
-            embedding_dim,
-            Laplacian_matrix,
-            node_count,
-        }
-    }
-    
-    
-    pub fn compute_laplacian(adj_matrix : Vec<Vec<f64>> , normalized: bool) -> Vec<Vec<f64>>{
-        let n = adj_matrix.len();
-        let mut Laplacian_matrix = vec![vec![0.0f64;n*n]];
-        let mut identity = vec![vec![0.0f64;n*n]];
-        
-        for i in 0..n{
-            identity[i][i] = 1.0; 
-        }
-        
-        for i in 0..n {
-            let degree = adj_matrix[i].iter().sum::<f64>();
-            for j in 0..n{
-                if i == j {
-                    Laplacian_matrix[i][j] = degree;
-                }
-                else{
-                    Laplacian_matrix[i][j] = degree - adj_matrix[i][j];
-                }
-            }
-            
-            if normalized == true { 
-                for j in 0..n {
-                    Laplacian_matrix[i][j] = identity[i][j] - (sqrt(degree)) * (adj_matrix[i][j]) * (sqrt(degree));
-                }
-            }
-            
-            Laplacian_matrix 
-        }
-    }
-    
-    fn matrix_power(&self, k: usize) -> Vec<Vec<f64>> {
-        if k == 0 {
-            // Return identity matrix
-            let mut identity = vec![vec![0.0; self.node_count]; self.node_count];
-            for i in 0..self.node_count {
-                identity[i][i] = 1.0;
-            }
-            return identity;
-        }
-        
-        if k == 1 {
-            return self.Laplacian_matrix.clone();
-        }
-        
-        // Use repeated matrix multiplication
-        let mut result = self.Laplacian_matrix.clone();
-        
-        for _ in 2..=k {
-            result = &result.matmul(&self.Laplacian_matrix.t());
-        }
-        
-        result
     }
 }
 
@@ -882,30 +613,31 @@ mod tests {
     use super::*;
     
     #[test]
-    fn test_create_graph(){
+    fn test_create_graph() {
         let directed_graph = Graph::directed();
-        assert!(directed_graph.is_directed());
+        assert!(directed_graph.is_directed);
         assert_eq!(directed_graph.node_count(), 0);
-        assert!(directed_graph.edge_count(),0);
+        assert_eq!(directed_graph.edge_count(), 0);
         
         let undirected_graph = Graph::undirected();
-        assert!(!undirected_graph.is_directed());
+        assert!(!undirected_graph.is_directed);
         assert_eq!(undirected_graph.node_count(), 0);
-        assert!(undirected_graph.edge_count(),0);
+        assert_eq!(undirected_graph.edge_count(), 0);
     }
     
     #[test]
-    fn test_add_node(){
+    fn test_add_node() {
         let mut graph = Graph::directed();
-        let node1 = Node::new(0 , "test".to_string());
+        let node1 = Node::new(1, "test".to_string());
+        let node2 = Node::new(2, "test".to_string());
         
         graph.add_node(node1).unwrap();
         graph.add_node(node2).unwrap();
         
-        assert_eq!(graph.node_count() , 2);
-        assert_eq!(graph.edge_count() , 1);
-        assert!(graph.nodes.contains_key(&node1.id));
-        assert!(graph.nodes.contains_key(&node2.id));
+        assert_eq!(graph.node_count(), 2);
+        assert_eq!(graph.edge_count(), 0);
+        assert!(graph.nodes.contains_key(&1));
+        assert!(graph.nodes.contains_key(&2));
     }
     
     #[test]
@@ -917,7 +649,7 @@ mod tests {
         graph.add_node(node1).unwrap();
         graph.add_node(node2).unwrap();
 
-        let edge = Edge::new(0, 1, 2, "connects".to_string(), 1.0);
+        let edge = Edge::new(1, 1, 2, "connects".to_string());
         graph.add_edge(edge).unwrap();
 
         assert_eq!(graph.edge_count(), 1);
@@ -936,7 +668,7 @@ mod tests {
         graph.add_node(node1).unwrap();
         graph.add_node(node2).unwrap();
 
-        let edge = Edge::new(0, 1, 2, "connects".to_string(), 1.0);
+        let edge = Edge::new(1, 1, 2, "connects".to_string());
         graph.add_edge(edge).unwrap();
 
         assert_eq!(graph.edge_count(), 1);
@@ -954,13 +686,13 @@ mod tests {
             graph.add_node(Node::new(i, "test".to_string())).unwrap();
         }
 
-        graph.add_edge(Edge::new(0, 1, 2, "edge".to_string(), 1.0)).unwrap();
-        graph.add_edge(Edge::new(0, 1, 3, "edge".to_string(), 1.0)).unwrap();
-        graph.add_edge(Edge::new(0, 3, 1, "edge".to_string(), 1.0)).unwrap();
+        graph.add_edge(Edge::new(1, 1, 2, "edge".to_string())).unwrap();
+        graph.add_edge(Edge::new(2, 1, 3, "edge".to_string())).unwrap();
+        graph.add_edge(Edge::new(3, 3, 1, "edge".to_string())).unwrap();
 
-        let outgoing_neighbors = graph.neighbors(1, EdgeDirection::Outgoing);
-        let incoming_neighbors = graph.neighbors(1, EdgeDirection::Incoming);
-        let all_neighbors = graph.neighbors(1, EdgeDirection::Both);
+        let outgoing_neighbors = graph.neighbors(1, EdgeDirection::Outgoing).unwrap();
+        let incoming_neighbors = graph.neighbors(1, EdgeDirection::Incoming).unwrap();
+        let all_neighbors = graph.neighbors(1, EdgeDirection::Both).unwrap();
 
         assert_eq!(outgoing_neighbors.len(), 2);
         assert!(outgoing_neighbors.contains(&2));
@@ -975,32 +707,31 @@ mod tests {
     }
     
     #[test]
-     fn test_degree_calculation() {
-         let mut graph = Graph::directed();
-         
-         // Create nodes
-         for i in 1..=3 {
-             graph.add_node(Node::new(i, "test".to_string())).unwrap();
-         }
- 
-         // Add edges: 1 -> 2, 1 -> 3, 3 -> 1
-         graph.add_edge(Edge::new(0, 1, 2, "edge".to_string(), 1.0)).unwrap();
-         graph.add_edge(Edge::new(0, 1, 3, "edge".to_string(), 1.0)).unwrap();
-         graph.add_edge(Edge::new(0, 3, 1, "edge".to_string(), 1.0)).unwrap();
- 
-         assert_eq!(graph.degree(1, EdgeDirection::Outgoing), 2);
-         assert_eq!(graph.degree(1, EdgeDirection::Incoming), 1);
-         assert_eq!(graph.degree(1, EdgeDirection::Both), 3);
- 
-         assert_eq!(graph.degree(2, EdgeDirection::Outgoing), 0);
-         assert_eq!(graph.degree(2, EdgeDirection::Incoming), 1);
-         assert_eq!(graph.degree(2, EdgeDirection::Both), 1);
- 
-         assert_eq!(graph.degree(3, EdgeDirection::Outgoing), 1);
-         assert_eq!(graph.degree(3, EdgeDirection::Incoming), 1);
-         assert_eq!(graph.degree(3, EdgeDirection::Both), 2);
-     }
-    
+    fn test_degree_calculation() {
+        let mut graph = Graph::directed();
+        
+        // Create nodes
+        for i in 1..=3 {
+            graph.add_node(Node::new(i, "test".to_string())).unwrap();
+        }
+
+        // Add edges: 1 -> 2, 1 -> 3, 3 -> 1
+        graph.add_edge(Edge::new(1, 1, 2, "edge".to_string())).unwrap();
+        graph.add_edge(Edge::new(2, 1, 3, "edge".to_string())).unwrap();
+        graph.add_edge(Edge::new(3, 3, 1, "edge".to_string())).unwrap();
+
+        assert_eq!(graph.degree(1, EdgeDirection::Outgoing), 2);
+        assert_eq!(graph.degree(1, EdgeDirection::Incoming), 1);
+        assert_eq!(graph.degree(1, EdgeDirection::Both), 3);
+
+        assert_eq!(graph.degree(2, EdgeDirection::Outgoing), 0);
+        assert_eq!(graph.degree(2, EdgeDirection::Incoming), 1);
+        assert_eq!(graph.degree(2, EdgeDirection::Both), 1);
+
+        assert_eq!(graph.degree(3, EdgeDirection::Outgoing), 1);
+        assert_eq!(graph.degree(3, EdgeDirection::Incoming), 1);
+        assert_eq!(graph.degree(3, EdgeDirection::Both), 2);
+    }
 
     #[test]
     fn test_adjacency_list_to_matrix() {
@@ -1008,13 +739,4 @@ mod tests {
         let matrix = adjacency_list_to_matrix(&adj_list, None);
         assert_eq!(matrix, vec![vec![0, 1, 1], vec![1, 0, 1], vec![1, 1, 0]]);
     }
-
-    #[test]
-    fn test_matrix_power() {
-        let graph = Graph::new(vec![vec![1, 2], vec![0, 2], vec![0, 1]]);
-        let power = graph.matrix_power(2);
-        assert_eq!(power, vec![vec![2, 2, 2], vec![2, 2, 2], vec![2, 2, 2]]);
-    }
 }
-
-        
