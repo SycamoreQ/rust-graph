@@ -2,7 +2,8 @@ use std::sync::Arc;
 use candle_core::{Tensor, Device, DType};
 use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet, VecDeque}; 
-use rayon::prelude::*;
+use core::f64::math::sqrt;
+
 
 pub type NodeID = u32;
 pub type EdgeID = u32;
@@ -16,7 +17,7 @@ pub enum EdgeDirection {
     Both,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, PartialEq ,  Deserialize)]
 pub struct Node {
     pub id: NodeID,
     pub node_type: String,
@@ -56,6 +57,7 @@ pub struct Edge {
     pub src: NodeID,
     pub dst: NodeID,
     pub edge_type: String,
+    #[serde(skip_serializing, skip_deserializing)]
     pub features: Option<Tensor>,
     pub weight: f32,
     pub attributes: HashMap<String, AttributeValue>,
@@ -88,10 +90,6 @@ impl Edge {
         self.weight = weight;
         self
     }
-
-    pub fn feature_dim(&self) -> Option<usize> {
-        self.features.as_ref().map(|f| f.shape()[f.shape().len() - 1])
-    }
     
     pub fn reverse(&self) -> Self {
         Edge {
@@ -115,6 +113,7 @@ pub enum AttributeValue {
     Float(f64),
     Boolean(bool),
     Vector(Vec<f32>),
+    #[serde(skip_serializing , skip_deserializing)]
     Tensor(Tensor),
 }
 
@@ -713,7 +712,7 @@ impl LapPE{
     }
     
     fn matrix_power(&self, k: usize) -> Vec<Vec<f64>> {
-        
+        let n = self.node_count();
         let mut laplacian_matrix = vec![vec![0.0f64;n*n]];
         if k == 0 {
             // Return identity matrix
@@ -725,14 +724,14 @@ impl LapPE{
         }
         
         if k == 1 {
-            return self.Laplacian_matrix.clone();
+            return self.laplacian_matrix.clone();
         }
         
         // Use repeated matrix multiplication
-        let mut result = self.Laplacian_matrix.clone();
+        let mut result = self.laplacian_matrix.clone();
         
         for _ in 2..=k {
-            result = &result.matmul(&self.Laplacian_matrix.t());
+            result = &result.matmul(&self.laplacian_matrix.t());
         }
         
         result
