@@ -188,6 +188,20 @@ pub struct Graph {
     pub next_edge_id: EdgeID,
 }
 
+impl PartialEq for Graph {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.nodes == other.nodes
+            && self.edges == other.edges
+            && self.adjacency_list == other.adjacency_list
+            && self.reverse_adjacency == other.reverse_adjacency
+            && self.node_types == other.node_types
+            && self.edge_types == other.edge_types
+            && self.attributes == other.attributes
+            && self.is_directed == other.is_directed
+    }
+}
+
 impl Graph {
     pub fn new(id: GraphID, is_directed: bool) -> Self {
         Self {
@@ -590,6 +604,134 @@ impl GraphOps for Graph {
 
     fn edge_count(&self) -> usize {
         self.edges.len()
+    }
+}
+
+pub struct RWSE{
+    pub embedding_dim : usize, 
+    pub transition_matrix : Vec<Vec<f32>>,
+    pub adjacency_matrix : Vec<Vec<f32>>,
+    pub node_count : usize,
+}
+
+impl RWSE{
+    pub fn new(embedding_dim: usize, transition_matrix: Vec<Vec<f32>>, adjacency_matrix: Vec<Vec<f32>>, node_count: usize, walk_length: usize) -> Self{
+        Self{
+            embedding_dim,
+            transition_matrix,
+            adjacency_matrix,
+            node_count,
+            walk_length
+        }
+    }
+    
+    pub fn comp_transition_matrix(adj_matrix : &[Vec<f64>]) -> Vec<Vec<f64>>{
+        let n = adj_matrix.len();
+        let mut transition_matrix =  vec![vec![0.0f64 ; n * n ]];
+        
+        for i in 0..n {
+            let degree  = adj_matrix[i].iter().sum::<f64>();
+            for j in 0..n {
+                transition_matrix[i][j] = adj_matrix[i][j] / degree;
+            }
+        }
+        
+        transition_matrix
+    } 
+    
+    fn matrix_power(&self, k: usize) -> Vec<Vec<f64>> {
+        if k == 0 {
+            // Return identity matrix
+            let mut identity = vec![vec![0.0; self.node_count]; self.node_count];
+            for i in 0..self.node_count {
+                identity[i][i] = 1.0;
+            }
+            return identity;
+        }
+        
+        if k == 1 {
+            return self.transition_matrix.clone();
+        }
+        
+        // Use repeated matrix multiplication
+        let mut result = self.transition_matrix.clone();
+        
+        for _ in 2..=k {
+            result = &result.matmul(&self.transition_matrix.t());
+        }
+        
+        result
+    }
+}
+
+pub struct LapPE{
+    pub embedding_dim: usize,
+    pub Laplacian_matrix: Vec<Vec<f64>>,
+    pub node_count: usize,
+}
+
+impl LapPE{ 
+    pub fn new(embedding_dim: usize, Laplacian_matrix: Vec<Vec<f64>>, node_count: usize) -> Self {
+        LapPE {
+            embedding_dim,
+            Laplacian_matrix,
+            node_count,
+        }
+    }
+    
+    
+    pub fn compute_laplacian(adj_matrix : Vec<Vec<f64>> , normalized: bool) -> Vec<Vec<f64>>{
+        let n = adj_matrix.len();
+        let mut Laplacian_matrix = vec![vec![0.0f64;n*n]];
+        let mut identity = vec![vec![0.0f64;n*n]];
+        
+        for i in 0..n{
+            identity[i][i] = 1.0; 
+        }
+        
+        for i in 0..n {
+            let degree = adj_matrix[i].iter().sum::<f64>();
+            for j in 0..n{
+                if i == j {
+                    Laplacian_matrix[i][j] = degree;
+                }
+                else{
+                    Laplacian_matrix[i][j] = degree - adj_matrix[i][j];
+                }
+            }
+            
+            if normalized == true { 
+                for j in 0..n {
+                    Laplacian_matrix[i][j] = identity[i][j] - (sqrt(degree)) * (adj_matrix[i][j]) * (sqrt(degree));
+                }
+            }
+            
+            Laplacian_matrix 
+        }
+    }
+    
+    fn matrix_power(&self, k: usize) -> Vec<Vec<f64>> {
+        if k == 0 {
+            // Return identity matrix
+            let mut identity = vec![vec![0.0; self.node_count]; self.node_count];
+            for i in 0..self.node_count {
+                identity[i][i] = 1.0;
+            }
+            return identity;
+        }
+        
+        if k == 1 {
+            return self.Laplacian_matrix.clone();
+        }
+        
+        // Use repeated matrix multiplication
+        let mut result = self.Laplacian_matrix.clone();
+        
+        for _ in 2..=k {
+            result = &result.matmul(&self.Laplacian_matrix.t());
+        }
+        
+        result
     }
 }
 
