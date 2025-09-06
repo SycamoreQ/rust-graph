@@ -936,7 +936,7 @@ mod tests {
         assert_eq!(matrix, vec![vec![0, 1, 1], vec![1, 0, 1], vec![1, 1, 0]]);
     }
     
-    #[test]
+    
     fn matrices_approx_equals(a: &[Vec<f64>] , b: &[Vec<f64>] , tolerance: f64) -> bool {
         if a.len() != b.len(){
             return false
@@ -955,8 +955,8 @@ mod tests {
         true
     }
     
-    #[test]
-    fn tensors_approx_equals(a: &Tensor , b: &Tensor , tolerance: f64) -> Result<bool , candle::core::Error>{
+
+    fn tensors_approx_equals(a: &Tensor , b: &Tensor , tolerance: f64) -> Result<bool , candle_core::Error>{
         let a_vec = a.flatten_all()?.to_vec1()?;
         let b_vec = b.flatten_all()?.to_vec1()?;
         
@@ -975,8 +975,8 @@ mod tests {
     #[test]
     fn test_rwse_new(){
         let embedding_dim = 64;
-        let transition_matrix = vec![vec![0.5 , 0.5] , [0.3 , 0.3]]; 
-        let adjacency_matrix = vec![vec![0.0 , 0.1] , [0.1 , 0.0]]; 
+        let transition_matrix = vec![vec![0.5 , 0.5] , vec![0.3 , 0.3]]; 
+        let adjacency_matrix = vec![vec![0.0 , 0.1] , vec![0.1 , 0.0]]; 
         let node_count = 2 ;
         
         let rwse = RWSE::new(embedding_dim , transition_matrix.clone() , adjacency_matrix.clone() , node_count);
@@ -1063,7 +1063,7 @@ mod tests {
         let expected_flat: Vec<f64> = transition_matrix.into_iter().flatten().collect();
         let expected = Tensor::from_vec(expected_flat, (2, 2), &Device::Cpu)?;
         
-        assert!(tensors_approx_equal(&result, &expected, 1e-10)?);
+        assert!(tensors_approx_equals(&result, &expected, 1e-10)?);
         Ok(())
     }
 
@@ -1084,7 +1084,7 @@ mod tests {
         let expected_flat = vec![0.4, 0.6, 0.36, 0.64];
         let expected = Tensor::from_vec(expected_flat, (2, 2), &Device::Cpu)?;
         
-        assert!(tensors_approx_equal(&result, &expected, 1e-10)?);
+        assert!(tensors_approx_equals(&result, &expected, 1e-10)?);
         Ok(())
     }
     
@@ -1119,7 +1119,7 @@ mod tests {
             vec![-1.0, -1.0, 2.0]
         ];
 
-        assert!(matrices_approx_equal(&result, &expected, 1e-10));
+        assert!(matrices_approx_equals(&result, &expected, 1e-10));
         
         // Check that each row sums to 0 (property of Laplacian)
         for row in &result {
@@ -1145,7 +1145,7 @@ mod tests {
             vec![-1.0, 1.0]
         ];
 
-        assert!(matrices_approx_equal(&result, &expected, 1e-10));
+        assert!(matrices_approx_equals(&result, &expected, 1e-10));
     }
 
     #[test]
@@ -1166,7 +1166,7 @@ mod tests {
             vec![0.0, -1.0, 1.0]
         ];
 
-        assert!(matrices_approx_equal(&result, &expected, 1e-10));
+        assert!(matrices_approx_equals(&result, &expected, 1e-10));
     }
     
     #[test]
@@ -1183,7 +1183,7 @@ mod tests {
         let expected_flat = vec![1.0, 0.0, 0.0, 1.0];
         let expected = Tensor::from_vec(expected_flat, (2, 2), &Device::Cpu)?;
         
-        assert!(tensors_approx_equal(&result, &expected, 1e-10)?);
+        assert!(tensors_approx_equals(&result, &expected, 1e-10)?);
         Ok(())
     }
 
@@ -1201,7 +1201,7 @@ mod tests {
         let expected_flat: Vec<f64> = laplacian_matrix.into_iter().flatten().collect();
         let expected = Tensor::from_vec(expected_flat, (2, 2), &Device::Cpu)?;
         
-        assert!(tensors_approx_equal(&result, &expected, 1e-10)?);
+        assert!(tensors_approx_equals(&result, &expected, 1e-10)?);
         Ok(())
     }
 
@@ -1221,7 +1221,7 @@ mod tests {
         let expected_flat = vec![2.0, -2.0, -2.0, 2.0];
         let expected = Tensor::from_vec(expected_flat, (2, 2), &Device::Cpu)?;
         
-        assert!(tensors_approx_equal(&result, &expected, 1e-10)?);
+        assert!(tensors_approx_equals(&result, &expected, 1e-10)?);
         Ok(())
     }
 
