@@ -8,7 +8,7 @@ use matrix::operation;
 
 pub type NodeID = u32;
 pub type EdgeID = u32;
-pub type GraphID = u32; 
+pub type GraphID = u32;  
 pub type SubgraphID = u32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -934,5 +934,360 @@ mod tests {
         let adj_list = vec![vec![1, 2], vec![0, 2], vec![0, 1]];
         let matrix = adjacency_list_to_matrix(&adj_list, None);
         assert_eq!(matrix, vec![vec![0, 1, 1], vec![1, 0, 1], vec![1, 1, 0]]);
+    }
+    
+    #[test]
+    fn matrices_approx_equals(a: &[Vec<f64>] , b: &[Vec<f64>] , tolerance: f64) -> bool {
+        if a.len() != b.len(){
+            return false
+        }
+        
+        for (row_a , row_b) in a.iter().zip(b.iter()) {
+            if row_a.len() != row_b.len() {
+                return false
+            }
+            for (val_a , val_b) in row_a.iter().zip(row_b.iter()) {
+                if (val_a - val_b).abs() > tolerance {
+                    return false
+                }
+            }
+        }
+        true
+    }
+    
+    #[test]
+    fn tensors_approx_equals(a: &Tensor , b: &Tensor , tolerance: f64) -> Result<bool , candle::core::Error>{
+        let a_vec = a.flatten_all()?.to_vec1()?;
+        let b_vec = b.flatten_all()?.to_vec1()?;
+        
+        if a_vec.len() != b_vec.len(){
+            Ok(false)
+        } else {
+            for (val_a , val_b) in a_vec.iter().zip(b_vec.iter()) {
+                if (val_a - val_b).abs() > tolerance {
+                    return Ok(false)
+                }
+            }
+            Ok(true)
+        }
+    }
+    
+    #[test]
+    fn test_rwse_new(){
+        let embedding_dim = 64;
+        let transition_matrix = vec![vec![0.5 , 0.5] , [0.3 , 0.3]]; 
+        let adjacency_matrix = vec![vec![0.0 , 0.1] , [0.1 , 0.0]]; 
+        let node_count = 2 ;
+        
+        let rwse = RWSE::new(embedding_dim , transition_matrix.clone() , adjacency_matrix.clone() , node_count);
+        
+        assert_eq!(rwse.embedding_dim , embedding_dim);
+        assert_eq!(rwse.transition_matrix , transition_matrix);
+        assert_eq!(rwse.adjacency_matrix , adjacency_matrix);
+        assert_eq!(rwse.node_count , node_count);
+    }
+    
+    #[test]
+    fn test_transition_matrix_comp(){
+        let adj_matrix = vec![
+            vec![0.1 , 0.0],
+            vec![0.0 , 0.1],
+        ];
+        
+        let result = RWSE::comp_transition_matrix(&adj_matrix);
+        
+        let expected = vec![
+            vec![0.1 , 0.0],
+            vec![0.0 , 0.1],
+        ];
+        
+        assert!(matrices_approx_equals(&result, &expected, 1e-10));
+    }
+    
+    #[test]
+    fn test_comp_transition_matrix_weighted() {
+            // Weighted adjacency matrix
+        let adj_matrix = vec![
+            vec![0.0, 2.0, 1.0],
+            vec![2.0, 0.0, 3.0],
+            vec![1.0, 3.0, 0.0]
+        ];
+    
+        let result = RWSE::comp_transition_matrix(&adj_matrix);
+            
+        // Check that each row sums to 1 (property of transition matrix)
+        for row in &result {
+            let sum: f64 = row.iter().sum();
+            assert!((sum - 1.0).abs() < 1e-10, "Row sum should be 1.0, got {}", sum);
+        }
+    
+        // Check specific values
+        assert!((result[0][1] - 2.0/3.0).abs() < 1e-10);
+        assert!((result[0][2] - 1.0/3.0).abs() < 1e-10);
+        assert!((result[1][0] - 2.0/5.0).abs() < 1e-10);
+        assert!((result[1][2] - 3.0/5.0).abs() < 1e-10);
+    }
+    
+    #[test]
+    fn test_comp_transition_matrix_isolated_node() {
+        // Node with degree 0 (isolated)
+        let adj_matrix = vec![
+            vec![0.0, 0.0],
+            vec![1.0, 0.0]
+        ];
+    
+        let result = RWSE::comp_transition_matrix(&adj_matrix);
+            
+        // First row should be all zeros (isolated node)
+        for val in &result[0] {
+            assert_eq!(*val, 0.0);
+        }
+            
+        // Second row should sum to 1
+        let sum: f64 = result[1].iter().sum();
+        assert!((sum - 1.0).abs() < 1e-10);
+    }
+    
+    #[test]
+    fn test_rwse_matrix_power_first() -> Result<(), candle_core::Error> {
+        let transition_matrix = vec![
+            vec![0.5, 0.5],
+            vec![0.3, 0.7]
+        ];
+        let adjacency_matrix = vec![vec![0.0, 1.0], vec![1.0, 0.0]];
+        let rwse = RWSE::new(64, transition_matrix.clone(), adjacency_matrix, 2);
+
+        let result = rwse.matrix_power(1)?;
+        
+        // Should be the original transition matrix
+        let expected_flat: Vec<f64> = transition_matrix.into_iter().flatten().collect();
+        let expected = Tensor::from_vec(expected_flat, (2, 2), &Device::Cpu)?;
+        
+        assert!(tensors_approx_equal(&result, &expected, 1e-10)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_rwse_matrix_power_second() -> Result<(), candle_core::Error> {
+        let transition_matrix = vec![
+            vec![0.5, 0.5],
+            vec![0.3, 0.7]
+        ];
+        let adjacency_matrix = vec![vec![0.0, 1.0], vec![1.0, 0.0]];
+        let rwse = RWSE::new(64, transition_matrix, adjacency_matrix, 2);
+
+        let result = rwse.matrix_power(2)?;
+        
+        // Manual calculation: T^2
+        // [0.5 0.5] * [0.5 0.5] = [0.4  0.6]
+        // [0.3 0.7]   [0.3 0.7]   [0.36 0.64]
+        let expected_flat = vec![0.4, 0.6, 0.36, 0.64];
+        let expected = Tensor::from_vec(expected_flat, (2, 2), &Device::Cpu)?;
+        
+        assert!(tensors_approx_equal(&result, &expected, 1e-10)?);
+        Ok(())
+    }
+    
+    #[test]
+    fn test_lappe_new() {
+        let embedding_dim = 32;
+        let laplacian_matrix = vec![vec![1.0, -1.0], vec![-1.0, 1.0]];
+        let node_count = 2;
+
+        let lappe = LapPE::new(embedding_dim, laplacian_matrix.clone(), node_count);
+
+        assert_eq!(lappe.embedding_dim, embedding_dim);
+        assert_eq!(lappe.laplacian_matrix, laplacian_matrix);
+        assert_eq!(lappe.node_count, node_count);
+    }
+
+    #[test]
+    fn test_compute_laplacian_unnormalized() {
+        let lappe = LapPE::new(32, vec![vec![0.0; 3]; 3], 3);
+        let adj_matrix = vec![
+            vec![0.0, 1.0, 1.0],
+            vec![1.0, 0.0, 1.0],
+            vec![1.0, 1.0, 0.0]
+        ];
+
+        let result = lappe.compute_laplacian(adj_matrix, false);
+        
+        // Expected unnormalized Laplacian for complete graph K3
+        let expected = vec![
+            vec![2.0, -1.0, -1.0],
+            vec![-1.0, 2.0, -1.0],
+            vec![-1.0, -1.0, 2.0]
+        ];
+
+        assert!(matrices_approx_equal(&result, &expected, 1e-10));
+        
+        // Check that each row sums to 0 (property of Laplacian)
+        for row in &result {
+            let sum: f64 = row.iter().sum();
+            assert!(sum.abs() < 1e-10, "Row sum should be 0.0, got {}", sum);
+        }
+    }
+
+    #[test]
+    fn test_compute_laplacian_normalized() {
+        let lappe = LapPE::new(32, vec![vec![0.0; 2]; 2], 2);
+        let adj_matrix = vec![
+            vec![0.0, 1.0],
+            vec![1.0, 0.0]
+        ];
+
+        let result = lappe.compute_laplacian(adj_matrix, true);
+        
+        // For simple path graph, normalized Laplacian should be:
+        // I - D^(-1/2) * A * D^(-1/2)
+        let expected = vec![
+            vec![1.0, -1.0],
+            vec![-1.0, 1.0]
+        ];
+
+        assert!(matrices_approx_equal(&result, &expected, 1e-10));
+    }
+
+    #[test]
+    fn test_compute_laplacian_isolated_node() {
+        let lappe = LapPE::new(32, vec![vec![0.0; 3]; 3], 3);
+        let adj_matrix = vec![
+            vec![0.0, 0.0, 0.0],  // Isolated node
+            vec![0.0, 0.0, 1.0],
+            vec![0.0, 1.0, 0.0]
+        ];
+
+        let result = lappe.compute_laplacian(adj_matrix, false);
+        
+        // Expected: isolated node has degree 0, others form edge
+        let expected = vec![
+            vec![0.0, 0.0, 0.0],
+            vec![0.0, 1.0, -1.0],
+            vec![0.0, -1.0, 1.0]
+        ];
+
+        assert!(matrices_approx_equal(&result, &expected, 1e-10));
+    }
+    
+    #[test]
+    fn test_lappe_matrix_power_identity() -> Result<(), candle_core::Error> {
+        let laplacian_matrix = vec![
+            vec![1.0, -1.0],
+            vec![-1.0, 1.0]
+        ];
+        let lappe = LapPE::new(32, laplacian_matrix, 2);
+
+        let result = lappe.matrix_power(0)?;
+        
+        // Should be identity matrix
+        let expected_flat = vec![1.0, 0.0, 0.0, 1.0];
+        let expected = Tensor::from_vec(expected_flat, (2, 2), &Device::Cpu)?;
+        
+        assert!(tensors_approx_equal(&result, &expected, 1e-10)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_lappe_matrix_power_first() -> Result<(), candle_core::Error> {
+        let laplacian_matrix = vec![
+            vec![2.0, -1.0],
+            vec![-1.0, 2.0]
+        ];
+        let lappe = LapPE::new(32, laplacian_matrix.clone(), 2);
+
+        let result = lappe.matrix_power(1)?;
+        
+        // Should be the original Laplacian matrix
+        let expected_flat: Vec<f64> = laplacian_matrix.into_iter().flatten().collect();
+        let expected = Tensor::from_vec(expected_flat, (2, 2), &Device::Cpu)?;
+        
+        assert!(tensors_approx_equal(&result, &expected, 1e-10)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_lappe_matrix_power_second() -> Result<(), candle_core::Error> {
+        let laplacian_matrix = vec![
+            vec![1.0, -1.0],
+            vec![-1.0, 1.0]
+        ];
+        let lappe = LapPE::new(32, laplacian_matrix, 2);
+
+        let result = lappe.matrix_power(2)?;
+        
+        // Manual calculation: L^2
+        // [1 -1] * [1 -1] = [2  -2]
+        // [-1 1]   [-1 1]   [-2  2]
+        let expected_flat = vec![2.0, -2.0, -2.0, 2.0];
+        let expected = Tensor::from_vec(expected_flat, (2, 2), &Device::Cpu)?;
+        
+        assert!(tensors_approx_equal(&result, &expected, 1e-10)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_integration_rwse_workflow() {
+        // Test complete workflow: adjacency -> transition -> power
+        let adj_matrix = vec![
+            vec![0.0, 2.0],
+            vec![2.0, 0.0]
+        ];
+
+        let transition_matrix = RWSE::comp_transition_matrix(&adj_matrix);
+        let rwse = RWSE::new(64, transition_matrix, adj_matrix, 2);
+
+        // Test that we can compute various powers without errors
+        assert!(rwse.matrix_power(0).is_ok());
+        assert!(rwse.matrix_power(1).is_ok());
+        assert!(rwse.matrix_power(3).is_ok());
+    }
+
+    #[test]
+    fn test_integration_lappe_workflow() {
+        // Test complete workflow: adjacency -> laplacian -> power
+        let adj_matrix = vec![
+            vec![0.0, 1.0, 0.0],
+            vec![1.0, 0.0, 1.0],
+            vec![0.0, 1.0, 0.0]
+        ];
+
+        let lappe = LapPE::new(32, vec![vec![0.0; 3]; 3], 3);
+        let laplacian = lappe.compute_laplacian(adj_matrix, false);
+        let lappe_with_computed = LapPE::new(32, laplacian, 3);
+
+        // Test that we can compute various powers without errors
+        assert!(lappe_with_computed.matrix_power(0).is_ok());
+        assert!(lappe_with_computed.matrix_power(1).is_ok());
+        assert!(lappe_with_computed.matrix_power(2).is_ok());
+    }
+
+    #[test]
+    fn test_edge_cases_empty_matrix() {
+        // Test with 1x1 matrices
+        let adj_matrix = vec![vec![0.0]];
+        let transition = RWSE::comp_transition_matrix(&adj_matrix);
+        
+        assert_eq!(transition.len(), 1);
+        assert_eq!(transition[0].len(), 1);
+        assert_eq!(transition[0][0], 0.0); // Isolated node
+    }
+
+    #[test]
+    fn test_numerical_stability() {
+        // Test with very small values
+        let adj_matrix = vec![
+            vec![0.0, 1e-10],
+            vec![1e-10, 0.0]
+        ];
+
+        let transition = RWSE::comp_transition_matrix(&adj_matrix);
+        
+        // Should handle small values correctly
+        for row in &transition {
+            let sum: f64 = row.iter().sum();
+            if sum > 0.0 {
+                assert!((sum - 1.0).abs() < 1e-9);
+            }
+        }
     }
 }

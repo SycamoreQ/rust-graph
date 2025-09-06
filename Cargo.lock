@@ -782,7 +782,7 @@ dependencies = [
  "gemm-f16 0.17.1",
  "gemm-f32 0.17.1",
  "gemm-f64 0.17.1",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "paste",
  "raw-cpuid 10.7.0",
@@ -802,7 +802,7 @@ dependencies = [
  "gemm-f16 0.18.2",
  "gemm-f32 0.18.2",
  "gemm-f64 0.18.2",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "paste",
  "raw-cpuid 11.5.0",
@@ -817,7 +817,7 @@ checksum = "b9c030d0b983d1e34a546b86e08f600c11696fde16199f971cd46c12e67512c0"
 dependencies = [
  "dyn-stack 0.10.0",
  "gemm-common 0.17.1",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "paste",
  "raw-cpuid 10.7.0",
@@ -832,7 +832,7 @@ checksum = "f6db9fd9f40421d00eea9dd0770045a5603b8d684654816637732463f4073847"
 dependencies = [
  "dyn-stack 0.13.0",
  "gemm-common 0.18.2",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "paste",
  "raw-cpuid 11.5.0",
@@ -847,7 +847,7 @@ checksum = "fbb5f2e79fefb9693d18e1066a557b4546cd334b226beadc68b11a8f9431852a"
 dependencies = [
  "dyn-stack 0.10.0",
  "gemm-common 0.17.1",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "paste",
  "raw-cpuid 10.7.0",
@@ -862,7 +862,7 @@ checksum = "dfcad8a3d35a43758330b635d02edad980c1e143dc2f21e6fd25f9e4eada8edf"
 dependencies = [
  "dyn-stack 0.13.0",
  "gemm-common 0.18.2",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "paste",
  "raw-cpuid 11.5.0",
@@ -878,7 +878,7 @@ dependencies = [
  "bytemuck",
  "dyn-stack 0.10.0",
  "half",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "once_cell",
  "paste",
@@ -899,7 +899,7 @@ dependencies = [
  "dyn-stack 0.13.0",
  "half",
  "libm",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "once_cell",
  "paste",
@@ -920,7 +920,7 @@ dependencies = [
  "gemm-common 0.17.1",
  "gemm-f32 0.17.1",
  "half",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "paste",
  "raw-cpuid 10.7.0",
@@ -938,7 +938,7 @@ dependencies = [
  "gemm-common 0.18.2",
  "gemm-f32 0.18.2",
  "half",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "paste",
  "raw-cpuid 11.5.0",
@@ -954,7 +954,7 @@ checksum = "e9a69f51aaefbd9cf12d18faf273d3e982d9d711f60775645ed5c8047b4ae113"
 dependencies = [
  "dyn-stack 0.10.0",
  "gemm-common 0.17.1",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "paste",
  "raw-cpuid 10.7.0",
@@ -969,7 +969,7 @@ checksum = "bc8d3d4385393304f407392f754cd2dc4b315d05063f62cf09f47b58de276864"
 dependencies = [
  "dyn-stack 0.13.0",
  "gemm-common 0.18.2",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "paste",
  "raw-cpuid 11.5.0",
@@ -984,7 +984,7 @@ checksum = "aa397a48544fadf0b81ec8741e5c0fba0043008113f71f2034def1935645d2b0"
 dependencies = [
  "dyn-stack 0.10.0",
  "gemm-common 0.17.1",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "paste",
  "raw-cpuid 10.7.0",
@@ -999,7 +999,7 @@ checksum = "35b2a4f76ce4b8b16eadc11ccf2e083252d8237c1b589558a49b0183545015bd"
 dependencies = [
  "dyn-stack 0.13.0",
  "gemm-common 0.18.2",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "paste",
  "raw-cpuid 11.5.0",
@@ -1784,6 +1784,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "670fdfda89751bc4a84ac13eaa63e205cf0fd22b4c9a5fbfa085b63c1f1d3a30"
 
 [[package]]
+name = "matrix"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b47e18b8a0ba6c9f2059ed8516261d169d462a07fafa8ec220ef6ac89c0efbc"
+dependencies = [
+ "num-complex 0.2.4",
+ "num-traits",
+]
+
+[[package]]
 name = "matrixmultiply"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1916,7 +1926,7 @@ dependencies = [
  "glam 0.30.5",
  "matrixmultiply",
  "nalgebra-macros",
- "num-complex",
+ "num-complex 0.4.6",
  "num-rational",
  "num-traits",
  "simba",
@@ -1958,7 +1968,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "882ed72dce9365842bf196bdeedf5055305f11fc8c03dee7bb0194a6cad34841"
 dependencies = [
  "matrixmultiply",
- "num-complex",
+ "num-complex 0.4.6",
  "num-integer",
  "num-traits",
  "portable-atomic",
@@ -1989,7 +1999,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "35bd024e8b2ff75562e5f34e7f4905839deb4b22955ef5e73d2fea1b9813cb23"
 dependencies = [
  "num-bigint",
- "num-complex",
+ "num-complex 0.4.6",
  "num-integer",
  "num-iter",
  "num-rational",
@@ -2003,6 +2013,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
 dependencies = [
  "num-integer",
+ "num-traits",
+]
+
+[[package]]
+name = "num-complex"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6b19411a9719e753aff12e5187b74d60d3dc449ec3f4dc21e3989c3f554bc95"
+dependencies = [
+ "autocfg",
  "num-traits",
 ]
 
@@ -2318,7 +2338,7 @@ checksum = "a0a01a0dc67cf4558d279f0c25b0962bd08fc6dec0137699eae304103e882fe6"
 dependencies = [
  "bytemuck",
  "libm",
- "num-complex",
+ "num-complex 0.4.6",
  "reborrow",
 ]
 
@@ -2331,7 +2351,7 @@ dependencies = [
  "bytemuck",
  "cfg-if",
  "libm",
- "num-complex",
+ "num-complex 0.4.6",
  "reborrow",
  "version_check",
 ]
@@ -2603,6 +2623,7 @@ dependencies = [
  "candle-core 0.9.1 (git+https://github.com/huggingface/candle.git)",
  "graphrs",
  "llm",
+ "matrix",
  "nalgebra",
  "ndarray",
  "petgraph",
@@ -2842,7 +2863,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3a386a501cd104797982c15ae17aafe8b9261315b5d07e3ec803f2ea26be0fa"
 dependencies = [
  "approx",
- "num-complex",
+ "num-complex 0.4.6",
  "num-traits",
  "paste",
  "wide",
