@@ -1,5 +1,3 @@
-mod GraphTrans;
-
 use crate::Graph::graph::{Node , Edge , Graph , GraphOps , EdgeDirection , NodeID , EdgeID};
 use crate::attn::{CrossAttention , BasicTransformerBlock , AttentionBlock};
 use candle::core::{Tensor, Device, DType};
@@ -9,235 +7,168 @@ use candle::nn::init::Init;
 use candle::candle_transformers as transformers; 
 
 
-pub type embedding_dim = usize;
-pub type input_dim = usize;
-pub type hidden_dim = usize;
-pub type output_dim = usize; 
-
-
-#[derive(Debug , Clone)]
-pub struct AttentionHead {
-    pub input_dim: usize,
-    pub output_dim: usize,
-    pub weight_matrix: Vec<Vec<f32>>,      
-    pub attention_vector: Vec<f32>,       
-    pub dropout_rate: f32,
+pub struct GATLayer {
+    weight_matrix: Tensor,    
+    attention_vector: Tensor,   
+    input_dim: usize,
+    output_dim: usize,
+    num_heads: usize,
+    dropout_rate: f64,
+    alpha: f64,  // LeakyReLU negative slope
+    
+    device: Device,
 }
 
-impl AttentionHead {
-    pub fn new(input_dim: usize, output_dim: usize, dropout_rate: f32) -> Self {
-        let mut rng = rand::thread_rng();
+impl GATLayer {
+    pub fn new(
+        input_dim: usize,
+        output_dim: usize,
+        num_heads: usize,
+        dropout_rate: f64,
+        alpha: f64,
+        device: Device,
+    ) -> Result<Self> {
+        let weight_std = (2.0 / (input_dim + output_dim) as f64).sqrt();
+        let weight_matrix = Tensor::randn(&[output_dim, input_dim], DType::F32, &device)?
+            .mul_scalar(weight_std)?;
         
-        // Initialize weight matrix with Xavier initialization
-        let xavier_std = (2.0 / (input_dim + output_dim) as f32).sqrt();
-        let weight_matrix = (0..output_dim)
-            .map(|_| {
-                (0..input_dim)
-                    .map(|_| rng.gen_range(-xavier_std..xavier_std))
-                    .collect()
-            })
-            .collect();
+        let attention_vector = Tensor::randn(&[2 * output_dim], DType::F32, &device)?
+            .mul_scalar(0.1)?;
         
-        // Initialize attention vector
-        let attention_vector = (0..2 * output_dim)
-            .map(|_| rng.gen_range(-0.1..0.1))
-            .collect();
-        
-        AttentionHead {
-            input_dim,
-            output_dim,
+        Ok(Self {
             weight_matrix,
             attention_vector,
-            dropout_rate,
-        }
-    }
-    
-    // Linear transformation: h' = W * h
-    fn linear_transform(&self, features: &[f32]) -> Vec<f32> {
-        self.weight_matrix
-            .iter()
-            .map(|row| {
-                row.iter().zip(features.iter()).map(|(w, f)| w * f).sum()
-            })
-            .collect()
-    }
-    
-    fn compute_attention_coef(&self, features_i: &[f32], features_j: &[f32]) -> f32 {
-        let h_i = self.linear_transform(features_i);
-        let h_j = self.linear_transform(features_j);
-        
-        let concat_features: Vec<f32> = h_i.into_iter().chain(h_j.into_iter()).collect();
-        
-        let attention_score: f32 = self.attention_vector
-            .iter()
-            .zip(concat_features.iter())
-            .map(|(a, h)| a * h)
-            .sum();
-        
-        self.leaky_relu(attention_score, 0.2)
-    }
-    
-    fn forward(&self , graph: &Graph , node_id: NodeID) -> Vec<f32>{
-        let node =  &graph.nodes.get(node_id);
-        let node_features = &node.features;
-        
-        let node_neighbours = GraphOps::neighbors(node_id , direction);
-        
-        let mut all_neighbours = node_neighbours; 
-        all_neighbours.push(node_id);
-        
-        let attn_coefs = all_neighbours
-            .iter()
-            .map(|&neighbour_id| {
-                let neighbour_features = &graph.nodes.get(neighbour_id).features;
-                self.compute_attention_coef(node_features, neighbour_features)
-            })
-            .collect();
-        
-        let attn_softmax = softmax(&attn_coefs)?;
-        
-        let mut output = vec![0.0; self.output_dim];
-        for (i, &neighbor_id) in all_neighbors.iter().enumerate() {
-            let neighbor_features = &graph.node_features[&neighbor_id];
-            let transformed_features = self.linear_transform(neighbor_features);
-            let weight = self.apply_dropout(attention_weights[i]);
-            
-            for j in 0..self.output_dim {
-                output[j] += weight * transformed_features[j];
-            }
-        }
-        
-        output
-        
-    }
-
-}
-
-pub struct GATLayer{
-    pub embedding_dim : embedding_dim,
-    pub input_dim : input_dim,
-    pub hidden_dim : hidden_dim,
-    pub output_dim : output_dim,
-    pub attention_matrix : Vec<Vec<Tensor>>,
-    pub num_heads : usize, 
-    pub trans_blocks : Vec<AttentionBlock>,
-    pub weights_per_head : Vec<num_heads>,
-    pub is_weighted: bool,
-    pub is_concat : bool, 
-}
-
-impl GATLayer{ 
-    
-    pub fn new(embedding_dim : embedding_dim , input_dim : input_dim , hidden_dim : hidden_dim , output_dim : output_dim , num_heads : usize) -> Self{
-        let attention_matrix = vec![vec![Tensor::zeros([embedding_dim , embedding_dim] , Device::Cpu) ; num_heads] ; num_heads];
-        Self{
-            embedding_dim,
             input_dim,
-            hidden_dim,
             output_dim,
-            attention_matrix,
             num_heads,
-            trans_blocks: Vec::new(),
-        }
+            dropout_rate,
+            alpha,
+            device,
+        })
     }
     
-    pub fn forward(&mut self , graph: Graph) -> Vec<f32>{
-        let head_outputs : Vec<Vec<f32>> = 
-            self.heads
-                .iter()
-                .map(|head| head.forward(graph , node_id))
-                .collect();
+    /// Forward pass through GAT layer
+    pub fn forward(
+        &self,
+        node_features: &Tensor,  
+        edge_index: &Tensor,     
+    ) -> Result<Tensor> {
+        let num_nodes = node_features.dim(0)?;
         
-        if self.is_concat { 
-            head_outputs.into_iter().flatten().collect()
-        }
+        let transformed_features = node_features.matmul(&self.weight_matrix.t())?;
         
-        else if is_weighted {
-            let weight = self.weights_per_head;
-            let weighted_outputs = head_outputs
-                .into_iter()
-                .map(|head_output|
-                    weight.into_iter()
-                        .zip(head_output)
-                        .map(|(weight, value)| weight * value)
-                        .collect()
-                )
-                .collect();
-            weighted_outputs.into_iter().flatten().collect()
-        }
+
+        let attention_scores = self.compute_attention_scores(&transformed_features, edge_index)?;
         
-        else if is_averaged{
+
+        let output = self.aggregate_with_attention(
+            &transformed_features, 
+            &attention_scores, 
+            edge_index
+        )?;
         
-            let output_dim = head_outputs[0].len();
-            let mut averaged_output = vec![0.0; output_dim];
+
+        output.relu()
+    }
+    
+    /// Compute attention scores between connected nodes
+    fn compute_attention_scores(
+        &self,
+        transformed_features: &Tensor, 
+        edge_index: &Tensor,        
+    ) -> Result<Tensor> {
+        let num_edges = edge_index.dim(1)?;
+        let mut attention_scores = Vec::with_capacity(num_edges);
         
-            for head_output in &head_outputs {
-                for (i, &value) in head_output.iter().enumerate() {
-                    averaged_output[i] += value;
+        let edge_data = edge_index.to_vec2::<u32>()?;
+        let feature_data = transformed_features.to_vec2::<f32>()?;
+        let attention_vec = self.attention_vector.to_vec1::<f32>()?;
+        
+        for edge_idx in 0..num_edges {
+            let src_node = edge_data[0][edge_idx] as usize;
+            let dst_node = edge_data[1][edge_idx] as usize;
+            
+            if src_node >= feature_data.len() || dst_node >= feature_data.len() {
+                continue;
+            }
+            
+            let src_features = &feature_data[src_node];
+            let dst_features = &feature_data[dst_node];
+            
+            let mut concatenated = Vec::with_capacity(2 * self.output_dim);
+            concatenated.extend_from_slice(src_features);
+            concatenated.extend_from_slice(dst_features);
+            
+
+            let mut score = 0.0f32;
+            for (i, &feat) in concatenated.iter().enumerate() {
+                if i < attention_vec.len() {
+                    score += attention_vec[i] * feat;
                 }
             }
-        
-            averaged_output
-                .into_iter()
-                .map(|sum| sum / self.heads.len() as f32)
-                .collect()
-        }
-        
-        else {
-            head_outputs.into_iter().flatten().collect()
-        }
-    }
-}
-
-pub struct GAT{
-    pub layers: Vec<GATLayer> 
-}
-
-impl GAT{ 
-    pub fn new() -> Self {
-        GAT{layers: Vec::new()}
-    }
-    
-    pub fn add_layer(&mut self , layer:GATLayer){
-        self.layers.push(layer);
-    }
-    
-    fn elu(&self, x: f32, alpha: f32) -> f32 {
-        if x > 0.0 {
-            x
-        } else {
-            alpha * (x.exp() - 1.0)
-        }
-    }
-    
-    pub async fn forward(&self, graph: &Graph) -> HashMap<usize, Vec<f32>> {
-        let mut current_features = HashMap::new();
-        
-        for &node_id in &graph.nodes {
-            let features = graph.get_encoded_features(node_id).await;
-            current_features.insert(node_id, features);
-        }
-        for (layer_idx, layer) in self.layers.iter().enumerate() {
-            let layer_outputs = futures::future::join_all(
-                graph.nodes.iter().map(|&node_id| async {
-                    let mut output = layer.forward(graph, node_id).await;
-                    
-                    // Apply activation (except last layer)
-                    if layer_idx < self.layers.len() - 1 {
-                        output = output
-                            .into_iter()
-                            .map(|x| self.elu(x, 1.0))
-                            .collect();
-                    }
-                    
-                    (node_id, output)
-                })
-            ).await;
             
-            current_features = layer_outputs.into_iter().collect();
+            // Apply LeakyReLU
+            let activated_score = if score > 0.0 { score } else { self.alpha as f32 * score };
+            attention_scores.push(activated_score);
         }
         
-        current_features
+        Tensor::from_slice(&attention_scores, (num_edges,), &self.device)
+    }
+    
+    /// Applies attention weights and aggregates neighbor features
+    fn aggregate_with_attention(
+        &self,
+        transformed_features: &Tensor, 
+        attention_scores: &Tensor,     
+        edge_index: &Tensor,         
+    ) -> Result<Tensor> {
+        let num_nodes = transformed_features.dim(0)?;
+        let num_edges = edge_index.dim(1)?;
+        
+        let mut output = vec![vec![0.0f32; self.output_dim]; num_nodes];
+        
+        let edge_data = edge_index.to_vec2::<u32>()?;
+        let feature_data = transformed_features.to_vec2::<f32>()?;
+        let scores = attention_scores.to_vec1::<f32>()?;
+        
+        let mut node_edges: HashMap<usize, Vec<(usize, usize, f32)>> = HashMap::new();
+        
+        for edge_idx in 0..num_edges {
+            let src = edge_data[0][edge_idx] as usize;
+            let dst = edge_data[1][edge_idx] as usize;
+            let score = scores[edge_idx];
+            
+            node_edges.entry(src).or_default().push((dst, edge_idx, score));
+        }
+        
+        // For each node, compute softmax over attention scores and aggregate
+        for (src_node, edges) in node_edges {
+            if src_node >= num_nodes {
+                continue;
+            }
+            
+            let max_score = edges.iter().map(|(_, _, score)| *score).fold(f32::NEG_INFINITY, f32::max);
+            let exp_scores: Vec<f32> = edges.iter()
+                .map(|(_, _, score)| (score - max_score).exp())
+                .collect();
+            let sum_exp: f32 = exp_scores.iter().sum();
+            
+            for ((dst_node, _, _), &exp_score) in edges.iter().zip(exp_scores.iter()) {
+                let weight = exp_score / sum_exp;  // Softmax weight
+                
+                if *dst_node < feature_data.len() {
+                    for (dim, &feature_val) in feature_data[*dst_node].iter().enumerate() {
+                        if dim < self.output_dim {
+                            output[src_node][dim] += weight * feature_val;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Convert back to tensor
+        let flat_output: Vec<f32> = output.into_iter().flatten().collect();
+        Tensor::from_slice(&flat_output, (num_nodes, self.output_dim), &self.device)
     }
 }
 
@@ -317,6 +248,119 @@ impl GCN{
         output
     }
 }
+
+
+pub struct GraphSageLayer{
+    pub self_weight: Linear, 
+    pub neighbor_weight: Linear, 
+    pub activation: fn(&Tensor) -> Tensor,
+    pub bias : Linear, 
+    pub use_bias: bool,
+    pub agg_func: String, 
+    
+}
+
+
+impl GraphSageLayer{
+    pub fn new(input_dim: usize , output_dim: usize , device: &Device) -> Result<Self> {
+        Ok(Self {
+            
+            self_weight : Linear::new(
+                Tensor::randn(&[output_dim , input_dim] , DType::F32 , device)?,
+                Some(Tensor::zeros(&[output_dim], DType::F32, device)?),
+            ),
+            neighbor_weight : Linear::new(
+                Tensor::randn(&[output_dim , neighbor_spread * embedding_dim] , DType::F32 , device)?,
+                Some(Tensor::zeros(&[output_dim], DType::F32, device)?),
+            ),
+            activation: |x| x.relu(),
+            bias : Linear::new(
+                Tensor::randn(&[output_dim] , DType::F32 , device)?,
+                Some(Tensor::zeros(&[output_dim], DType::F32, device)?),
+            ),
+            use_bias: true,
+            
+            agg_func: String::from("mean"),
+        })
+    }
+    
+    pub fn mean_aggregation(neighbor_features: &[Tensor]) -> Result<Tensor> {
+        if neighbor_features.is_empty() {
+            return Err(candle_core::Error::Msg("No neighbors to aggregate".into()));
+        }
+        
+ 
+        let stacked = Tensor::stack(neighbor_features, 0)?; // [num_neighbors, feature_dim]
+        stacked.mean(0) 
+    }
+    
+    
+    pub fn forward(&self , node_features: &Tensor , neighbor_features: &Tensor) -> Result<Tensor>{
+        let self_transformed = self.self_weight.forward(node_features)?;
+        
+        // Transform aggregated neighbor features  
+        let neighbor_transformed = self.neighbor_weight.forward(neighbor_features)?;
+        
+        // Combine and activate
+        let combined = (&self_transformed + &neighbor_transformed)?;
+        (self.activation)(&combined)
+    }
+}
+
+pub struct GraphSage{
+    pub layers: Vec<GraphSageLayer>,
+    pub device: Device,
+    pub sample_size: usize, 
+}
+
+impl GraphSage{
+    pub fn new(layer_dims: &[usize], sample_size: Vec<usize> , device: Device) -> Result<Self>{
+        let mut layers = Vec::new();
+        
+        for i in 0..layer_dims.len(){
+            layers.push(GraphSageLayer::new(layer_dims[i], layer_dims[i+1], &device)?)
+        }
+        
+        Ok(Self{
+            layers,
+            device,
+            sample_size,
+        })
+    }
+    
+    pub fn forward(&self, graph: &Graph , node_features: &HashMap<NodeID , Tensor> , target_nodes: &[NodeID]) -> Result<HashMap<NodeID, Tensor>>{
+        let mut current_features = node_features.clone();
+        
+        for (layer_idx , layer) in self.layers.iter().enumerate(){
+            let sample_size = self.sample_size[layer_idx];
+            let mut next_features = HashMap::new();
+            
+            for &node_id in target_nodes{
+                let neighbors = graph::neighbors(&node_id , Undirected)?;
+                
+                let neigbor_tensor : Vec<Tensor> = neighbors.iter().
+                    filter_map(|&n| current_features.get(&n).cloned()).collect();
+                
+                let aggregated = 
+                    if !neighbor_tensor.is_empty(){
+                        GraphSageLayer::mean_aggregation(neighbor_tensor);
+                    }
+                    else{
+                        Tensor::zeros(&[layer.input_dims] , DType = F32 , &self.device)?
+                    };
+                
+                
+                let node_feat = current_features.get(&node_id).unwrap();
+                let output = layer.forward(node_feat , &aggregated)?;
+                
+                next_features = next_features.insert(node_id , output);
+                
+            }
+            current_features = next_features;
+        }
+        Ok(current_features)
+    }
+} 
 
 
             
