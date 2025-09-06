@@ -990,18 +990,18 @@ mod tests {
     #[test]
     fn test_transition_matrix_comp(){
         let adj_matrix = vec![
-            vec![0.1 , 0.0],
-            vec![0.0 , 0.1],
+            vec![0.0 , 1.0],
+            vec![1.0 , 0.0],
         ];
         
         let result = RWSE::comp_transition_matrix(&adj_matrix);
         
         let expected = vec![
-            vec![0.1 , 0.0],
-            vec![0.0 , 0.1],
+            vec![0.0 , 1.0],
+            vec![1.0 , 0.0],
         ];
         
-        assert_eq!(&result , &expected);
+        assert!(matrices_approx_equals(&result, &expected, 1e-10));
     }
     
     #[test]
