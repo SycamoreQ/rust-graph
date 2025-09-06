@@ -3,6 +3,7 @@ use candle_core::{Tensor, Device, DType};
 use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet, VecDeque}; 
 use std::f64;
+use matrix::operation
 
 
 
@@ -639,6 +640,7 @@ pub struct RWSE{
     pub node_count : usize,
 }
 
+
 impl RWSE{
     pub fn new(embedding_dim: usize, transition_matrix: Vec<Vec<f64>>, adjacency_matrix: Vec<Vec<f64>>, node_count: usize) -> Self{
         Self{
@@ -648,7 +650,7 @@ impl RWSE{
             node_count,
         }
     }
-    
+        
     pub fn comp_transition_matrix(adj_matrix : &[Vec<f64>]) -> Vec<Vec<f64>>{
         let n = adj_matrix.len();
         let mut transition_matrix =  vec![vec![0.0f64 ; n * n ]];
@@ -664,6 +666,13 @@ impl RWSE{
     } 
     
     fn matrix_power(&self, k: usize) -> Vec<Vec<f64>> {
+        
+        let transition_matrix_tensor = Tensor::from_vec(
+            self.transition_matrix.into_iter().flatten().collect::<Vec<f64>>(),
+            (matrix_rows, matrix_cols),
+            &device
+        )?;
+        
         if k == 0 {
             // Return identity matrix
             let mut identity = vec![vec![0.0; self.node_count]; self.node_count];
@@ -680,11 +689,17 @@ impl RWSE{
         // Use repeated matrix multiplication
         let mut result = self.transition_matrix.clone();
         
+        let mut result_tensor = Tensor::from_vec(
+            result.into_iter().flatten().collect::<Vec<f64>>(), 
+            (rows, cols), 
+            &device
+        )?;
+        
         for _ in 2..=k {
-            result = &result.matmul(&self.transition_matrix.t());
+            result_tensor = &result_tensor.matmul(&self.transition_matrix_tensor.t());
         }
         
-        result as Vec<Vec<f64>>
+        result_tensor.to_vec()
     }
 }
 
@@ -703,7 +718,6 @@ impl LapPE{
             node_count,
         }
     }
-    
     
     pub fn compute_laplacian(&self ,adj_matrix : Vec<Vec<f64>> , normalized: bool) -> Vec<Vec<f64>>{
         let n = adj_matrix.len();
@@ -738,6 +752,12 @@ impl LapPE{
     
     fn matrix_power(&self, k: usize) -> Vec<Vec<f64>> {
         let mut laplacian_matrix = vec![vec![0.0; self.node_count]; self.node_count];
+        
+        let laplacian_matrix_tensor = Tensor::from_vec(
+            self.transition_matrix.into_iter().flatten().collect::<Vec<f64>>(),
+            (matrix_rows, matrix_cols),
+            &device
+        )?;
         if k == 0 {
             // Return identity matrix
             let mut identity = vec![vec![0.0; self.node_count]; self.node_count];
@@ -752,15 +772,22 @@ impl LapPE{
         }
         
         // Use repeated matrix multiplication
-        let mut result = self.laplacian_matrix.clone();
+        let mut result = self.laplacian_matrix.clone().to_tensor();
+        
+        let mut result_tensor = Tensor::from_vec(
+            result.into_iter().flatten().collect::<Vec<f64>>(), 
+            (rows, cols), 
+            &device
+        )?;
         
         for _ in 2..=k {
-            result = &result.matmul(&self.laplacian_matrix.t());
+            result_tensor = &result_tensor.matmul(&self.laplacian_matrix_tensor.t());
         }
         
-        result
+        result_tensor.to_vec()
     }
 }
+
 
 pub fn adjacency_list_to_matrix(adj_list: &[Vec<usize>], n: Option<usize>) -> Vec<Vec<u8>> {
     let size = n.unwrap_or(adj_list.len());
