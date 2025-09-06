@@ -699,7 +699,7 @@ impl RWSE{
             result_tensor = &result_tensor.matmul(&self.transition_matrix_tensor.t());
         }
         
-        result_tensor.to_vec()
+        result_tensor
     }
 }
 
@@ -784,7 +784,7 @@ impl LapPE{
             result_tensor = &result_tensor.matmul(&self.laplacian_matrix_tensor.t());
         }
         
-        result_tensor.to_vec()
+        result_tensor
     }
 }
 
