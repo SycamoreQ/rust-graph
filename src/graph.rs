@@ -666,9 +666,8 @@ impl RWSE{
     } 
     
     fn matrix_power(&self, k: usize) -> Result<Tensor, Error> {
-        
         let transition_matrix_tensor = Tensor::from_vec(
-            self.transition_matrix.into_iter().flatten().collect::<Vec<f64>>(),
+            self.transition_matrix.clone().into_iter().flatten().collect::<Vec<f64>>(),
             (matrix_rows, matrix_cols),
             &device
         )?;
@@ -696,7 +695,7 @@ impl RWSE{
         )?;
         
         for _ in 2..=k {
-            result_tensor = &result_tensor.matmul(&self.transition_matrix_tensor.t());
+            result_tensor = &result_tensor.matmul(transition_matrix_tensor.t());
         }
         
         result_tensor
@@ -751,10 +750,8 @@ impl LapPE{
     }
     
     fn matrix_power(&self, k: usize) -> Result<Tensor , Error> {
-        let mut laplacian_matrix = vec![vec![0.0; self.node_count]; self.node_count];
-        
         let laplacian_matrix_tensor = Tensor::from_vec(
-            self.transition_matrix.into_iter().flatten().collect::<Vec<f64>>(),
+            self.laplacian_matrix.clone().into_iter().flatten().collect::<Vec<f64>>(),
             (matrix_rows, matrix_cols),
             &device
         )?;
@@ -781,7 +778,7 @@ impl LapPE{
         )?;
         
         for _ in 2..=k {
-            result_tensor = &result_tensor.matmul(&self.laplacian_matrix_tensor.t());
+            result_tensor = &result_tensor.matmul(laplacian_matrix_tensor.t());
         }
         
         result_tensor
