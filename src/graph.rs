@@ -1,5 +1,4 @@
-use std::{sync::Arc, vec};
-use candle_core::{Tensor, Device, DType , Error};
+use candle_core::{Tensor, Device , Error};
 use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet}; 
 use std::f64;
@@ -653,7 +652,7 @@ impl RWSE {
         
     pub fn comp_transition_matrix(adj_matrix: &[Vec<f64>]) -> Vec<Vec<f64>> {
         let n = adj_matrix.len();
-        let mut transition_matrix = vec![vec![0.0f64; n]; n]; // Fixed: should be n x n, not n x n*n
+        let mut transition_matrix = vec![vec![0.0f64; n]; n]; 
         
         for i in 0..n {
             let degree = adj_matrix[i].iter().sum::<f64>();
@@ -681,7 +680,7 @@ impl RWSE {
         
         let transition_matrix_tensor = Tensor::from_vec(
             self.transition_matrix.clone().into_iter().flatten().collect::<Vec<f64>>(),
-            (self.node_count, self.node_count), // Fixed: use actual dimensions
+            (self.node_count, self.node_count), 
             &device
         )?;
         
@@ -693,7 +692,7 @@ impl RWSE {
         let mut result_tensor = transition_matrix_tensor.clone();
         
         for _ in 2..=k {
-            result_tensor = result_tensor.matmul(&transition_matrix_tensor)?; // Fixed: handle Result and remove unnecessary reference
+            result_tensor = result_tensor.matmul(&transition_matrix_tensor)?; 
         }
         
         Ok(result_tensor)
@@ -718,7 +717,7 @@ impl LapPE {
     
     pub fn compute_laplacian(&self, adj_matrix: Vec<Vec<f64>>, normalized: bool) -> Vec<Vec<f64>> {
         let n = adj_matrix.len();
-        let mut laplacian_matrix = vec![vec![0.0f64; n]; n]; // Fixed: initialize properly
+        let mut laplacian_matrix = vec![vec![0.0f64; n]; n]; 
         
         for i in 0..n {
             let degree = adj_matrix[i].iter().sum::<f64>();
@@ -726,7 +725,7 @@ impl LapPE {
                 if i == j {
                     laplacian_matrix[i][j] = degree;
                 } else {
-                    laplacian_matrix[i][j] = -adj_matrix[i][j]; // Fixed: should be negative
+                    laplacian_matrix[i][j] = -adj_matrix[i][j]; 
                 }
             }
         }
