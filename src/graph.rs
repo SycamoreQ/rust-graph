@@ -1001,7 +1001,7 @@ mod tests {
             vec![0.0 , 0.1],
         ];
         
-        assert!(matrices_approx_equals(&result, &expected, 1e-10));
+        assert_eq!(&result , &expected);
     }
     
     #[test]
