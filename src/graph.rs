@@ -1,9 +1,9 @@
 use std::{sync::Arc, vec};
-use candle_core::{Tensor, Device, DType};
+use candle_core::{Tensor, Device, DType , Error};
 use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet, VecDeque}; 
 use std::f64;
-use matrix::operation
+use matrix::operation;
 
 
 
@@ -633,17 +633,17 @@ impl GraphOps for Graph {
     }
 }
 
-pub struct RWSE{
-    pub embedding_dim : usize, 
-    pub transition_matrix : Vec<Vec<f64>>,
-    pub adjacency_matrix : Vec<Vec<f64>>,
-    pub node_count : usize,
+#[derive(Debug, Clone)]
+pub struct RWSE {
+    pub embedding_dim: usize,
+    pub transition_matrix: Vec<Vec<f64>>,
+    pub adjacency_matrix: Vec<Vec<f64>>,
+    pub node_count: usize,
 }
 
-
-impl RWSE{
-    pub fn new(embedding_dim: usize, transition_matrix: Vec<Vec<f64>>, adjacency_matrix: Vec<Vec<f64>>, node_count: usize) -> Self{
-        Self{
+impl RWSE {
+    pub fn new(embedding_dim: usize, transition_matrix: Vec<Vec<f64>>, adjacency_matrix: Vec<Vec<f64>>, node_count: usize) -> Self {
+        Self {
             embedding_dim,
             transition_matrix,
             adjacency_matrix,
@@ -651,14 +651,16 @@ impl RWSE{
         }
     }
         
-    pub fn comp_transition_matrix(adj_matrix : &[Vec<f64>]) -> Vec<Vec<f64>>{
+    pub fn comp_transition_matrix(adj_matrix: &[Vec<f64>]) -> Vec<Vec<f64>> {
         let n = adj_matrix.len();
-        let mut transition_matrix =  vec![vec![0.0f64 ; n * n ]];
+        let mut transition_matrix = vec![vec![0.0f64; n]; n]; // Fixed: should be n x n, not n x n*n
         
         for i in 0..n {
-            let degree  = adj_matrix[i].iter().sum::<f64>();
-            for j in 0..n {
-                transition_matrix[i][j] = adj_matrix[i][j] / degree;
+            let degree = adj_matrix[i].iter().sum::<f64>();
+            if degree > 0.0 { // Avoid division by zero
+                for j in 0..n {
+                    transition_matrix[i][j] = adj_matrix[i][j] / degree;
+                }
             }
         }
         
@@ -666,50 +668,46 @@ impl RWSE{
     } 
     
     fn matrix_power(&self, k: usize) -> Result<Tensor, Error> {
+        let device = Device::Cpu; // You'll need to pass this as parameter or store it
+        
+        if k == 0 {
+            // Return identity matrix as tensor
+            let mut identity_flat = vec![0.0f64; self.node_count * self.node_count];
+            for i in 0..self.node_count {
+                identity_flat[i * self.node_count + i] = 1.0;
+            }
+            return Tensor::from_vec(identity_flat, (self.node_count, self.node_count), &device);
+        }
+        
         let transition_matrix_tensor = Tensor::from_vec(
             self.transition_matrix.clone().into_iter().flatten().collect::<Vec<f64>>(),
-            (matrix_rows, matrix_cols),
+            (self.node_count, self.node_count), // Fixed: use actual dimensions
             &device
         )?;
         
-        if k == 0 {
-            // Return identity matrix
-            let mut identity = vec![vec![0.0; self.node_count]; self.node_count];
-            for i in 0..self.node_count {
-                identity[i][i] = 1.0;
-            }
-            return identity;
-        }
-        
         if k == 1 {
-            return self.transition_matrix.clone();
+            return Ok(transition_matrix_tensor);
         }
         
         // Use repeated matrix multiplication
-        let mut result = self.transition_matrix.clone();
-        
-        let mut result_tensor = Tensor::from_vec(
-            result.into_iter().flatten().collect::<Vec<f64>>(), 
-            (rows, cols), 
-            &device
-        )?;
+        let mut result_tensor = transition_matrix_tensor.clone();
         
         for _ in 2..=k {
-            result_tensor = &result_tensor.matmul(transition_matrix_tensor.t());
+            result_tensor = result_tensor.matmul(&transition_matrix_tensor)?; // Fixed: handle Result and remove unnecessary reference
         }
         
-        result_tensor
+        Ok(result_tensor)
     }
 }
 
-#[derive(Debug , Clone)]
-pub struct LapPE{
+#[derive(Debug, Clone)]
+pub struct LapPE {
     pub embedding_dim: usize,
     pub laplacian_matrix: Vec<Vec<f64>>,
     pub node_count: usize,
 }
 
-impl LapPE{ 
+impl LapPE { 
     pub fn new(embedding_dim: usize, laplacian_matrix: Vec<Vec<f64>>, node_count: usize) -> Self {
         LapPE {
             embedding_dim,
@@ -718,70 +716,76 @@ impl LapPE{
         }
     }
     
-    pub fn compute_laplacian(&self ,adj_matrix : Vec<Vec<f64>> , normalized: bool) -> Vec<Vec<f64>>{
+    pub fn compute_laplacian(&self, adj_matrix: Vec<Vec<f64>>, normalized: bool) -> Vec<Vec<f64>> {
         let n = adj_matrix.len();
-        let mut laplacian_matrix = self.laplacian_matrix.clone();
-        let mut identity = vec![vec![0.0f64;n*n]];
-        
-        for i in 0..n{
-            identity[i][i] = 1.0; 
-        }
+        let mut laplacian_matrix = vec![vec![0.0f64; n]; n]; // Fixed: initialize properly
         
         for i in 0..n {
             let degree = adj_matrix[i].iter().sum::<f64>();
-            for j in 0..n{
+            for j in 0..n {
                 if i == j {
                     laplacian_matrix[i][j] = degree;
-                }
-                else{
-                    laplacian_matrix[i][j] = degree - adj_matrix[i][j];
-                }
-            }
-            laplacian_matrix.clone();
-            
-            if normalized == true { 
-                for j in 0..n {
-                    laplacian_matrix[i][j] = identity[i][j] - degree.sqrt() * adj_matrix[i][j] * degree.sqrt();
-
+                } else {
+                    laplacian_matrix[i][j] = -adj_matrix[i][j]; // Fixed: should be negative
                 }
             }
-        }
-        return laplacian_matrix 
-    }
-    
-    fn matrix_power(&self, k: usize) -> Result<Tensor , Error> {
-        let laplacian_matrix_tensor = Tensor::from_vec(
-            self.laplacian_matrix.clone().into_iter().flatten().collect::<Vec<f64>>(),
-            (matrix_rows, matrix_cols),
-            &device
-        )?;
-        if k == 0 {
-            // Return identity matrix
-            let mut identity = vec![vec![0.0; self.node_count]; self.node_count];
-            for i in 0..self.node_count {
-                identity[i][i] = 1.0;
-            }
-            return identity;
         }
         
+        if normalized {
+            // Compute normalized Laplacian: I - D^(-1/2) * A * D^(-1/2)
+            let mut degrees = vec![0.0f64; n];
+            for i in 0..n {
+                degrees[i] = adj_matrix[i].iter().sum::<f64>();
+            }
+            
+            for i in 0..n {
+                for j in 0..n {
+                    if i == j {
+                        laplacian_matrix[i][j] = 1.0;
+                    } else {
+                        if degrees[i] > 0.0 && degrees[j] > 0.0 {
+                            laplacian_matrix[i][j] = -adj_matrix[i][j] / (degrees[i].sqrt() * degrees[j].sqrt());
+                        } else {
+                            laplacian_matrix[i][j] = 0.0;
+                        }
+                    }
+                }
+            }
+        }
+        
+        laplacian_matrix
+    }
+    
+    fn matrix_power(&self, k: usize) -> Result<Tensor, Error> {
+        let device = Device::Cpu; // You'll need to pass this as parameter or store it
+        
+        if k == 0 {
+            // Return identity matrix as tensor
+            let mut identity_flat = vec![0.0f64; self.node_count * self.node_count];
+            for i in 0..self.node_count {
+                identity_flat[i * self.node_count + i] = 1.0;
+            }
+            return Tensor::from_vec(identity_flat, (self.node_count, self.node_count), &device);
+        }
+        
+        let laplacian_matrix_tensor = Tensor::from_vec(
+            self.laplacian_matrix.clone().into_iter().flatten().collect::<Vec<f64>>(),
+            (self.node_count, self.node_count), // Fixed: use actual dimensions
+            &device
+        )?;
+        
         if k == 1 {
-            return self.laplacian_matrix.clone();
+            return Ok(laplacian_matrix_tensor);
         }
         
         // Use repeated matrix multiplication
-        let mut result = self.laplacian_matrix.clone().to_tensor();
-        
-        let mut result_tensor = Tensor::from_vec(
-            result.into_iter().flatten().collect::<Vec<f64>>(), 
-            (rows, cols), 
-            &device
-        )?;
+        let mut result_tensor = laplacian_matrix_tensor.clone();
         
         for _ in 2..=k {
-            result_tensor = &result_tensor.matmul(laplacian_matrix_tensor.t());
+            result_tensor = result_tensor.matmul(&laplacian_matrix_tensor)?; // Fixed: handle Result properly
         }
         
-        result_tensor
+        Ok(result_tensor)
     }
 }
 
