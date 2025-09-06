@@ -957,8 +957,8 @@ mod tests {
     
 
     fn tensors_approx_equals(a: &Tensor , b: &Tensor , tolerance: f64) -> Result<bool , candle_core::Error>{
-        let a_vec = a.flatten_all()?.to_vec1()?;
-        let b_vec = b.flatten_all()?.to_vec1()?;
+        let a_vec: Vec<f64> = a.flatten_all()?.to_vec1()?;
+        let b_vec: Vec<f64> = b.flatten_all()?.to_vec1()?;
         
         if a_vec.len() != b_vec.len(){
             Ok(false)
