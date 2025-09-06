@@ -4,8 +4,6 @@ use std::collections::{HashMap, HashSet};
 use std::f64;
 use matrix::operation;
 
-
-
 pub type NodeID = u32;
 pub type EdgeID = u32;
 pub type GraphID = u32;  
@@ -30,7 +28,6 @@ pub struct Node {
 impl PartialEq for Node {
     fn eq(&self, other: &Self) -> bool {
         self.attributes == other.attributes
-        // We ignore `features` in equality check
     }
 }
 
@@ -70,7 +67,6 @@ pub struct Edge {
 impl PartialEq for Edge {
     fn eq(&self, other: &Self) -> bool {
         self.attributes == other.attributes
-        // ignoring features
     }
 }
 
@@ -262,7 +258,7 @@ impl Graph {
                 if self.is_directed {
                     out_degree + in_degree
                 } else {
-                    out_degree // For undirected graphs, both lists are the same
+                    out_degree 
                 }
             }
         }
@@ -306,7 +302,7 @@ impl Graph {
             current_level = next_level;
         }
         
-        visited.remove(&node_id); // Remove starting node
+        visited.remove(&node_id); 
         visited
     }
     
@@ -314,14 +310,12 @@ impl Graph {
         let mut sub_graph = Graph::new(self.id + 1, self.is_directed);
         let node_set: HashSet<NodeID> = node_ids.iter().cloned().collect();
 
-        // Add nodes
         for &node_id in node_ids {
             if let Ok(node) = self.get_node(node_id) {
                 sub_graph.add_node(node.clone())?;
             }
         }
 
-        // Add edges between included nodes
         for edge in self.edges.values() {
             if node_set.contains(&edge.src) && node_set.contains(&edge.dst) {
                 sub_graph.add_edge(edge.clone())?;
@@ -335,7 +329,7 @@ impl Graph {
         let num_edges = if self.is_directed { 
             self.edges.len() 
         } else { 
-            self.edges.len() * 2 // Each undirected edge becomes two directed edges
+            self.edges.len() * 2 
         };
 
         let mut edge_indices = Vec::with_capacity(num_edges * 2);
@@ -360,7 +354,6 @@ impl Graph {
                 edge_features.push(features.clone());
             }
 
-            // For undirected graphs, add reverse edge
             if !self.is_directed && edge.src != edge.dst {
                 edge_indices.extend_from_slice(&[tgt_idx as f32, src_idx as f32]);
                 edge_weights.push(edge.weight);
@@ -376,7 +369,7 @@ impl Graph {
             .map_err(|e| GraphError::TensorError(format!("{:?}", e)))?;
         
         let edge_attr = if !edge_features.is_empty() {
-            Some(edge_features[0].clone()) // Simplified for demo
+            Some(edge_features[0].clone())
         } else {
             None
         };
@@ -452,7 +445,6 @@ impl GraphOps for Graph {
             self.next_node_id += 1;
         }
 
-        // Update node type index
         self.node_types.entry(node.node_type.clone())
             .or_default()
             .push(node.id);
@@ -656,7 +648,7 @@ impl RWSE {
         
         for i in 0..n {
             let degree = adj_matrix[i].iter().sum::<f64>();
-            if degree > 0.0 { // Avoid division by zero
+            if degree > 0.0 { 
                 for j in 0..n {
                     transition_matrix[i][j] = adj_matrix[i][j] / degree;
                 }
@@ -667,10 +659,9 @@ impl RWSE {
     } 
     
     fn matrix_power(&self, k: usize) -> Result<Tensor, Error> {
-        let device = Device::Cpu; // You'll need to pass this as parameter or store it
+        let device = Device::Cpu;
         
         if k == 0 {
-            // Return identity matrix as tensor
             let mut identity_flat = vec![0.0f64; self.node_count * self.node_count];
             for i in 0..self.node_count {
                 identity_flat[i * self.node_count + i] = 1.0;
@@ -688,7 +679,7 @@ impl RWSE {
             return Ok(transition_matrix_tensor);
         }
         
-        // Use repeated matrix multiplication
+
         let mut result_tensor = transition_matrix_tensor.clone();
         
         for _ in 2..=k {
@@ -731,7 +722,6 @@ impl LapPE {
         }
         
         if normalized {
-            // Compute normalized Laplacian: I - D^(-1/2) * A * D^(-1/2)
             let mut degrees = vec![0.0f64; n];
             for i in 0..n {
                 degrees[i] = adj_matrix[i].iter().sum::<f64>();
@@ -756,10 +746,9 @@ impl LapPE {
     }
     
     fn matrix_power(&self, k: usize) -> Result<Tensor, Error> {
-        let device = Device::Cpu; // You'll need to pass this as parameter or store it
+        let device = Device::Cpu; 
         
         if k == 0 {
-            // Return identity matrix as tensor
             let mut identity_flat = vec![0.0f64; self.node_count * self.node_count];
             for i in 0..self.node_count {
                 identity_flat[i * self.node_count + i] = 1.0;
@@ -769,7 +758,7 @@ impl LapPE {
         
         let laplacian_matrix_tensor = Tensor::from_vec(
             self.laplacian_matrix.clone().into_iter().flatten().collect::<Vec<f64>>(),
-            (self.node_count, self.node_count), // Fixed: use actual dimensions
+            (self.node_count, self.node_count),
             &device
         )?;
         
@@ -777,7 +766,6 @@ impl LapPE {
             return Ok(laplacian_matrix_tensor);
         }
         
-        // Use repeated matrix multiplication
         let mut result_tensor = laplacian_matrix_tensor.clone();
         
         for _ in 2..=k {
