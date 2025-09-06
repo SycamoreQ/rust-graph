@@ -665,7 +665,7 @@ impl RWSE{
         transition_matrix
     } 
     
-    fn matrix_power(&self, k: usize) -> Vec<Vec<f64>> {
+    fn matrix_power(&self, k: usize) -> Tensor {
         
         let transition_matrix_tensor = Tensor::from_vec(
             self.transition_matrix.into_iter().flatten().collect::<Vec<f64>>(),
@@ -750,7 +750,7 @@ impl LapPE{
         return laplacian_matrix 
     }
     
-    fn matrix_power(&self, k: usize) -> Vec<Vec<f64>> {
+    fn matrix_power(&self, k: usize) -> Tensor {
         let mut laplacian_matrix = vec![vec![0.0; self.node_count]; self.node_count];
         
         let laplacian_matrix_tensor = Tensor::from_vec(
