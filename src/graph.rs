@@ -1,7 +1,7 @@
 use std::{sync::Arc, vec};
 use candle_core::{Tensor, Device, DType , Error};
 use serde::{Serialize, Deserialize};
-use std::collections::{HashMap, HashSet, VecDeque}; 
+use std::collections::{HashMap, HashSet}; 
 use std::f64;
 use matrix::operation;
 
