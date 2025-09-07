@@ -1,4 +1,4 @@
-use crate::graph::{Node , Edge , Graph , GraphOps , EdgeDirection , NodeID , EdgeID};
+use crate::graph::{Graph , GraphOps , EdgeDirection , NodeID , EdgeID , GraphError};
 use candle_core::{Tensor, Device, DType};
 use candle_nn::{Linear , ops::softmax , Module , Dropout , init  }; 
 use std::collections::{HashMap}; 
@@ -358,8 +358,6 @@ impl GraphSage{
 
 #[cfg(test)]
 mod tests {
-    use crate::graph::GraphError;
-
     use super::*; 
     
     fn create_test_graph(graph: &Graph) -> Graph { 
@@ -405,7 +403,7 @@ mod tests {
      }
  
      #[test]
-     fn test_gat_forward_pass() -> Result<()> {
+     fn test_gat_forward_pass() -> Result<() , GraphError> {
          let device = Device::Cpu;
          let input_dim = 4;
          let output_dim = 2;
@@ -445,7 +443,7 @@ mod tests {
      
      
      #[test]
-     fn test_gat_attention_computation() -> Result<()> {
+     fn test_gat_attention_computation() -> Result<() , GraphError> {
          let device = Device::Cpu;
          let gat_layer = GATLayer::new(3, 2, 1, 0.0, 0.2, device.clone())?;
  
@@ -476,11 +474,10 @@ mod tests {
      }
      
      #[test]
-     fn test_graphsage_layer_creation() -> Result<()> {
+     fn test_graphsage_layer_creation() -> Result<() , GraphError> {
          let device = Device::Cpu;
          let input_dim = 4;
          let output_dim = 2;
- 
          let sage_layer = GraphSageLayer::new(input_dim, output_dim, &device);
          assert!(sage_layer.is_ok());
  
@@ -492,7 +489,7 @@ mod tests {
      }
  
      #[test]
-     fn test_graphsage_mean_aggregation() -> Result<() , E> {
+     fn test_graphsage_mean_aggregation() -> Result<() , GraphError> {
          let device = Device::Cpu;
  
          let neighbor1 = Tensor::new(vec![1.0f32, 2.0, 3.0], &device)?;
@@ -523,7 +520,7 @@ mod tests {
      }
  
      #[test]
-     fn test_graphsage_layer_forward() -> Result<() , E> {
+     fn test_graphsage_layer_forward() -> Result<() , GraphError> {
          let device = Device::Cpu;
          let sage_layer = GraphSageLayer::new(3, 2, 10, &device)?;
  
@@ -540,7 +537,7 @@ mod tests {
      }
  
      #[test]
-     fn test_graphsage_model_creation() -> Result<() , E> {
+     fn test_graphsage_model_creation() -> Result<() , GraphError> {
          let device = Device::Cpu;
          let layer_dims = vec![4, 8, 4];
          let sample_sizes = vec![5, 3]; 
@@ -556,7 +553,7 @@ mod tests {
      }
  
      #[test]
-     fn test_edge_index_bounds_checking() -> Result<() , E> {
+     fn test_edge_index_bounds_checking() -> Result<() , GraphError> {
          let device = Device::Cpu;
          let gat_layer = GATLayer::new(2, 2, 1, 0.0, 0.2, device.clone())?;
  
@@ -586,7 +583,7 @@ mod tests {
      }
  
      #[test]
-     fn test_gat_self_attention() -> Result<(), E> {
+     fn test_gat_self_attention() -> Result<(), GraphError> {
          let device = Device::Cpu;
          let gat_layer = GATLayer::new(2, 2, 1, 0.0, 0.2, device.clone())?;
  
@@ -633,7 +630,7 @@ mod tests {
  
      // Integration test combining multiple components
      #[test]
-     fn test_multi_layer_gat() -> Result<(), E> {
+     fn test_multi_layer_gat() -> Result<(), GraphError> {
          let device = Device::Cpu;
          
          // Create two GAT layers
