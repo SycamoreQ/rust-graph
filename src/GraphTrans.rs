@@ -1,10 +1,8 @@
-use crate::Graph::graph::{Node , Edge , Graph , GraphOps , EdgeDirection , NodeID , EdgeID};
-use crate::attn::{CrossAttention , BasicTransformerBlock , AttentionBlock};
-use candle::core::{Tensor, Device, DType};
-use candle::nn::{rnn , lstm}; 
-use candle::nn::ops::{softmax , layer_norm , dropout , softmax_last_dim , leaky_relu};
-use candle::nn::init::Init;
-use candle::candle_transformers as transformers; 
+use crate::graph::{Node , Edge , Graph , GraphOps , EdgeDirection , NodeID , EdgeID};
+use candle_core::{Tensor, Device, DType};
+use candle_core::{Linear , Module}; 
+use candle_core::ops::{softmax , layer_norm , dropout , softmax_last_dim , leaky_relu};
+use std::collections::{HashMap}; 
 
 
 pub struct GATLayer {
@@ -15,7 +13,6 @@ pub struct GATLayer {
     num_heads: usize,
     dropout_rate: f64,
     alpha: f64,  // LeakyReLU negative slope
-    
     device: Device,
 }
 
@@ -29,11 +26,9 @@ impl GATLayer {
         device: Device,
     ) -> Result<Self> {
         let weight_std = (2.0 / (input_dim + output_dim) as f64).sqrt();
-        let weight_matrix = Tensor::randn(&[output_dim, input_dim], DType::F32, &device)?
-            .mul_scalar(weight_std)?;
+        let weight_matrix = Tensor::randn(0.0f32 , weight_std , &[output_dim, input_dim],  &device)?;
         
-        let attention_vector = Tensor::randn(&[2 * output_dim], DType::F32, &device)?
-            .mul_scalar(0.1)?;
+        let attention_vector = Tensor::randn(0.0f32 , weight_std , &[2 * output_dim], &device)?;
         
         Ok(Self {
             weight_matrix,
@@ -67,7 +62,6 @@ impl GATLayer {
             edge_index
         )?;
         
-
         output.relu()
     }
     
@@ -223,7 +217,7 @@ impl GCN{
             let mut aggregated_features =  vec![0.0; self.input_dim];
             
             for j in 0..nodes{
-                let laplacian_weight = Laplacian[i][j];
+                let laplacian_weight = laplacian[i][j];
                 
                 if laplacian_weight != 0.0 && j < node_features.len(){
                     for k in 0..self.input_dim.min(node_features[j].len()){
@@ -262,20 +256,20 @@ pub struct GraphSageLayer{
 
 
 impl GraphSageLayer{
-    pub fn new(input_dim: usize , output_dim: usize , device: &Device) -> Result<Self> {
+    pub fn new(input_dim: usize , output_dim: usize , neighbor_spread: usize ,  device: &Device) -> Result<Self> {
         Ok(Self {
             
             self_weight : Linear::new(
-                Tensor::randn(&[output_dim , input_dim] , DType::F32 , device)?,
+                Tensor::randn(0.0f32 , &[output_dim , input_dim] , DType::F32 , device)?,
                 Some(Tensor::zeros(&[output_dim], DType::F32, device)?),
             ),
             neighbor_weight : Linear::new(
-                Tensor::randn(&[output_dim , neighbor_spread * embedding_dim] , DType::F32 , device)?,
+                Tensor::randn(0.0f32 , &[output_dim , neighbor_spread * output_dim] , DType::F32 , device)?,
                 Some(Tensor::zeros(&[output_dim], DType::F32, device)?),
             ),
             activation: |x| x.relu(),
             bias : Linear::new(
-                Tensor::randn(&[output_dim] , DType::F32 , device)?,
+                Tensor::randn(0.0f32 , &[output_dim] , DType::F32 , device)?,
                 Some(Tensor::zeros(&[output_dim], DType::F32, device)?),
             ),
             use_bias: true,
@@ -336,25 +330,24 @@ impl GraphSage{
             let mut next_features = HashMap::new();
             
             for &node_id in target_nodes{
-                let neighbors = graph::neighbors(&node_id , Undirected)?;
+                let neighbors = graph::neighbors(&node_id , EdgeDirection::Undirected)?;
                 
                 let neigbor_tensor : Vec<Tensor> = neighbors.iter().
                     filter_map(|&n| current_features.get(&n).cloned()).collect();
                 
                 let aggregated = 
                     if !neighbor_tensor.is_empty(){
-                        GraphSageLayer::mean_aggregation(neighbor_tensor);
+                        GraphSageLayer::mean_aggregation(neighbor_tensor).unwrap();
                     }
                     else{
-                        Tensor::zeros(&[layer.input_dims] , DType = F32 , &self.device)?
+                        Tensor::zeros(&[layer.input_dims] , DType = F32 , &self.device).unwrap();
                     };
                 
                 
                 let node_feat = current_features.get(&node_id).unwrap();
-                let output = layer.forward(node_feat , &aggregated)?;
+                let output = layer.forward(node_feat , &aggregated).unwrap();
                 
-                next_features = next_features.insert(node_id , output);
-                
+                next_features.insert(node_id , output);
             }
             current_features = next_features;
         }
@@ -362,5 +355,316 @@ impl GraphSage{
     }
 } 
 
+
+#[cfg(test)]
+mod tests {
+    use super::*; 
+    
+    fn create_test_graph() -> Graph { 
+        let mut undirected_graph = Graph::undirected(); 
+        
+        for i in 0..4 {
+            graph.add_node(Node::new(i, format!("node_{}", i)));
+        }
+        
+        graph.add_edge(Edge::new(0, 0, 1, "edge".to_string())).unwrap();
+        graph.add_edge(Edge::new(1, 1, 2, "edge".to_string())).unwrap();
+        graph.add_edge(Edge::new(2, 2, 3, "edge".to_string())).unwrap();
+        graph.add_edge(Edge::new(3, 0, 2, "edge".to_string())).unwrap();
+        
+        graph
+    }
+    
+    #[test]
+    fn test_gat_layer_creation() {
+         let device = Device::Cpu;
+         let input_dim = 8;
+         let output_dim = 4;
+         let num_heads = 2;
+         let dropout_rate = 0.1;
+         let alpha = 0.2;
+ 
+         let gat_layer = GATLayer::new(
+             input_dim,
+             output_dim,
+             num_heads,
+             dropout_rate,
+             alpha,
+             device.clone(),
+         );
+ 
+         assert!(gat_layer.is_ok());
+         let layer = gat_layer.unwrap();
+         assert_eq!(layer.input_dim, input_dim);
+         assert_eq!(layer.output_dim, output_dim);
+         assert_eq!(layer.num_heads, num_heads);
+         assert_eq!(layer.dropout_rate, dropout_rate);
+         assert_eq!(layer.alpha, alpha);
+     }
+ 
+     #[test]
+     fn test_gat_forward_pass() -> Result<()> {
+         let device = Device::Cpu;
+         let input_dim = 4;
+         let output_dim = 2;
+         let num_nodes = 3;
+ 
+         let gat_layer = GATLayer::new(input_dim, output_dim, 1, 0.0, 0.2, device.clone())?;
+ 
+         
+         let node_features = Tensor::new(
+             vec![
+                 vec![1.0f32, 2.0, 3.0, 4.0],    
+                 vec![2.0f32, 1.0, 4.0, 3.0],    
+                 vec![3.0f32, 4.0, 1.0, 2.0],    
+             ],
+             &device,
+         )?;
+ 
+         // Create edge index [2, num_edges]
+         let edge_index = Tensor::new(
+             vec![
+                 vec![0u32, 1u32],  
+                 vec![1u32, 2u32],  
+             ],
+             &device,
+         )?;
+ 
+         let result = gat_layer.forward(&node_features, &edge_index);
+         assert!(result.is_ok());
+ 
+         let output = result?;
+         let output_shape = output.dims();
+         assert_eq!(output_shape[0], num_nodes);
+         assert_eq!(output_shape[1], output_dim);
+ 
+         Ok(())
+     }
+     
+     
+     #[test]
+     fn test_gat_attention_computation() -> Result<()> {
+         let device = Device::Cpu;
+         let gat_layer = GATLayer::new(3, 2, 1, 0.0, 0.2, device.clone())?;
+ 
+         let transformed_features = Tensor::new(
+             vec![
+                 vec![1.0f32, 0.5],
+                 vec![0.8f32, 1.2],
+                 vec![1.5f32, 0.3],
+             ],
+             &device,
+         )?;
+ 
+         let edge_index = Tensor::new(
+             vec![
+                 vec![0u32, 1u32],
+                 vec![1u32, 2u32],
+             ],
+             &device,
+         )?;
+ 
+         let attention_scores = gat_layer.compute_attention_scores(&transformed_features, &edge_index);
+         assert!(attention_scores.is_ok());
+ 
+         let scores = attention_scores?;
+         assert_eq!(scores.dims()[0], 2); 
+ 
+         Ok(())
+     }
+     
+     #[test]
+     fn test_graphsage_layer_creation() -> Result<()> {
+         let device = Device::Cpu;
+         let input_dim = 4;
+         let output_dim = 2;
+ 
+         let sage_layer = GraphSageLayer::new(input_dim, output_dim, &device);
+         assert!(sage_layer.is_ok());
+ 
+         let layer = sage_layer?;
+         assert_eq!(layer.agg_func, "mean");
+         assert_eq!(layer.use_bias, true);
+ 
+         Ok(())
+     }
+ 
+     #[test]
+     fn test_graphsage_mean_aggregation() -> Result<()> {
+         let device = Device::Cpu;
+ 
+         let neighbor1 = Tensor::new(vec![1.0f32, 2.0, 3.0], &device)?;
+         let neighbor2 = Tensor::new(vec![4.0f32, 5.0, 6.0], &device)?;
+         let neighbor3 = Tensor::new(vec![7.0f32, 8.0, 9.0], &device)?;
+ 
+         let neighbors = vec![neighbor1, neighbor2, neighbor3];
+         
+         let result = GraphSageLayer::mean_aggregation(&neighbors);
+         assert!(result.is_ok());
+ 
+         let aggregated = result?;
+         let expected_mean = vec![4.0f32, 5.0, 6.0]; // Mean of the three vectors
+         
+         let output_data = aggregated.to_vec1::<f32>()?;
+         for (i, &expected) in expected_mean.iter().enumerate() {
+             assert!((output_data[i] - expected).abs() < 1e-6);
+         }
+ 
+         Ok(())
+     }
+ 
+     #[test]
+     fn test_graphsage_mean_aggregation_empty() {
+         let neighbors: Vec<Tensor> = vec![];
+         let result = GraphSageLayer::mean_aggregation(&neighbors);
+         assert!(result.is_err());
+     }
+ 
+     #[test]
+     fn test_graphsage_layer_forward() -> Result<()> {
+         let device = Device::Cpu;
+         let sage_layer = GraphSageLayer::new(3, 2, &device)?;
+ 
+         let node_features = Tensor::new(vec![1.0f32, 2.0, 3.0], &device)?;
+         let neighbor_features = Tensor::new(vec![4.0f32, 5.0, 6.0], &device)?;
+ 
+         let result = sage_layer.forward(&node_features, &neighbor_features);
+         assert!(result.is_ok());
+ 
+         let output = result?;
+         assert_eq!(output.dims()[0], 2); // output dimension
+ 
+         Ok(())
+     }
+ 
+     #[test]
+     fn test_graphsage_model_creation() -> Result<()> {
+         let device = Device::Cpu;
+         let layer_dims = vec![4, 8, 4]; // input -> hidden -> output
+         let sample_sizes = vec![5, 3]; // sample sizes for each layer
+ 
+         let graphsage = GraphSage::new(&layer_dims, sample_sizes.clone(), device.clone());
+         assert!(graphsage.is_ok());
+ 
+         let model = graphsage?;
+         assert_eq!(model.layers.len(), layer_dims.len() - 1);
+         assert_eq!(model.sample_size, sample_sizes);
+ 
+         Ok(())
+     }
+ 
+     #[test]
+     fn test_edge_index_bounds_checking() -> Result<()> {
+         let device = Device::Cpu;
+         let gat_layer = GATLayer::new(2, 2, 1, 0.0, 0.2, device.clone())?;
+ 
+         // Create node features for 2 nodes
+         let node_features = Tensor::new(
+             vec![
+                 vec![1.0f32, 2.0],
+                 vec![3.0f32, 4.0],
+             ],
+             &device,
+         )?;
+ 
+         // Create edge index with out-of-bounds node reference
+         let edge_index = Tensor::new(
+             vec![
+                 vec![0u32, 5u32], // node 5 doesn't exist
+                 vec![1u32, 1u32],
+             ],
+             &device,
+         )?;
+ 
+         // This should handle the out-of-bounds gracefully
+         let result = gat_layer.forward(&node_features, &edge_index);
+         assert!(result.is_ok());
+ 
+         Ok(())
+     }
+ 
+     #[test]
+     fn test_gat_self_attention() -> Result<()> {
+         let device = Device::Cpu;
+         let gat_layer = GATLayer::new(2, 2, 1, 0.0, 0.2, device.clone())?;
+ 
+         let node_features = Tensor::new(
+             vec![
+                 vec![1.0f32, 0.0],
+                 vec![0.0f32, 1.0],
+             ],
+             &device,
+         )?;
+ 
+         // Self-loops: each node attends to itself
+         let edge_index = Tensor::new(
+             vec![
+                 vec![0u32, 1u32],
+                 vec![0u32, 1u32],
+             ],
+             &device,
+         )?;
+ 
+         let result = gat_layer.forward(&node_features, &edge_index)?;
+         assert_eq!(result.dims(), &[2, 2]);
+ 
+         Ok(())
+     }
+ 
+     #[test]
+     fn test_feature_dimension_consistency() {
+         // Test that GCN handles consistent feature dimensions
+         let gcn = GCN::new(3, 2, false);
+         
+         // Test with features that have different dimensions than expected
+         let inconsistent_features = vec![
+             vec![1.0, 2.0],        // Wrong dimension (2 instead of 3)
+             vec![3.0, 4.0, 5.0],   // Correct dimension
+         ];
+ 
+         let graph = create_test_graph();
+         
+         // The forward method should handle this gracefully
+         let result = gcn.forward(&graph, &inconsistent_features);
+         assert_eq!(result.len(), graph.nodes.len());
+     }
+ 
+     // Integration test combining multiple components
+     #[test]
+     fn test_multi_layer_gat() -> Result<()> {
+         let device = Device::Cpu;
+         
+         // Create two GAT layers
+         let layer1 = GATLayer::new(4, 8, 2, 0.1, 0.2, device.clone())?;
+         let layer2 = GATLayer::new(8, 4, 1, 0.1, 0.2, device.clone())?;
+ 
+         let node_features = Tensor::new(
+             vec![
+                 vec![1.0f32, 2.0, 3.0, 4.0],
+                 vec![5.0f32, 6.0, 7.0, 8.0],
+                 vec![9.0f32, 10.0, 11.0, 12.0],
+             ],
+             &device,
+         )?;
+ 
+         let edge_index = Tensor::new(
+             vec![
+                 vec![0u32, 1u32, 2u32],
+                 vec![1u32, 2u32, 0u32],
+             ],
+             &device,
+         )?;
+ 
+         // Pass through first layer
+         let hidden = layer1.forward(&node_features, &edge_index)?;
+         assert_eq!(hidden.dims(), &[3, 8]);
+ 
+         // Pass through second layer
+         let output = layer2.forward(&hidden, &edge_index)?;
+         assert_eq!(output.dims(), &[3, 4]);
+ 
+         Ok(())
+     }
+}
 
             

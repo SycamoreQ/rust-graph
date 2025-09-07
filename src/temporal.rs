@@ -1,7 +1,5 @@
 use crate::graph::{Graph, GraphBatch, GraphOps , RWSE , LapPE , Node , Edge , GraphError};
 use crate::attn::SpatialTransformer;
-use crate::attn::CrossAttention;
-use crate::GraphTrans::{AttentionHead}
 
 pub type TemporalNodeID = usize;
 pub type TemporalEdgeID = usize;
@@ -36,5 +34,5 @@ pub struct DynamicGraph{
 
 #[derive(Debug , Clone , PartialEq)]
 pub struct TemporalGraphBatch{
-    pub nodes : Vec<
+    pub nodes : Vec
 }
