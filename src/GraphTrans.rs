@@ -207,7 +207,7 @@ impl GCN{
     
     pub fn forward(&self , graph: &Graph , node_features : &Vec<Vec<f32>>) -> Vec<Vec<f32>>{
         let nodes = graph.nodes.len();
-        let laplacian = Graph::Laplacian(normalized = true).expect("Laplacian matrix not found");
+        let laplacian = Graph::laplacian(true).expect("Laplacian matrix not found");
         
         let mut new_node_feat = vec![vec![0.0; self.output_dim]; nodes];
         
