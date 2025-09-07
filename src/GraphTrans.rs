@@ -330,7 +330,7 @@ impl GraphSage{
             let mut next_features = HashMap::new();
             
             for &node_id in target_nodes{
-                let neighbors = Graph::neighbors(graph, node_id, Direction::Outgoing)?;
+                let neighbors = Graph::neighbors(graph, node_id, EdgeDirection::Outgoing)?;
                 
                 let neighbor_tensor : Vec<Tensor> = neighbors.iter().
                     filter_map(|&n| current_features.get(&n).cloned()).collect();
@@ -359,8 +359,9 @@ impl GraphSage{
 #[cfg(test)]
 mod tests {
     use super::*; 
+    use crate::graph::{Edge ,Node, Graph , GraphOps , EdgeDirection , NodeID , EdgeID , GraphError};
     
-    fn create_test_graph(graph: &Graph) -> Graph { 
+    fn create_test_graph() -> Graph { 
         let mut undirected_graph = Graph::undirected(); 
         
         for i in 0..4 {
@@ -478,7 +479,8 @@ mod tests {
          let device = Device::Cpu;
          let input_dim = 4;
          let output_dim = 2;
-         let sage_layer = GraphSageLayer::new(input_dim, output_dim, &device);
+         let neighbor_spread = 10; 
+         let sage_layer = GraphSageLayer::new(input_dim, output_dim,neighbor_spread , &device);
          assert!(sage_layer.is_ok());
  
          let layer = sage_layer?;
@@ -502,8 +504,8 @@ mod tests {
          assert!(result.is_ok());
  
          let aggregated = result?;
-         let expected_mean = vec![4.0f32, 5.0, 6.0]; // Mean of the three vectors
-         
+         let expected_mean = vec![4.0f32, 5.0, 6.0]; 
+  
          let output_data = aggregated.to_vec1::<f32>()?;
          for (i, &expected) in expected_mean.iter().enumerate() {
              assert!((output_data[i] - expected).abs() < 1e-6);
@@ -531,7 +533,7 @@ mod tests {
          assert!(result.is_ok());
  
          let output = result?;
-         assert_eq!(output.dims()[0], 2); // output dimension
+         assert_eq!(output.dims()[0], 2); 
  
          Ok(())
      }
@@ -566,7 +568,6 @@ mod tests {
              &device,
          )?;
  
-         // Create edge index with out-of-bounds node reference
          let edge_index = Tensor::new(
              vec![
                  vec![0u32, 5u32], // node 5 doesn't exist
@@ -575,7 +576,6 @@ mod tests {
              &device,
          )?;
  
-         // This should handle the out-of-bounds gracefully
          let result = gat_layer.forward(&node_features, &edge_index);
          assert!(result.is_ok());
  
@@ -595,7 +595,6 @@ mod tests {
              &device,
          )?;
  
-         // Self-loops: each node attends to itself
          let edge_index = Tensor::new(
              vec![
                  vec![0u32, 1u32],
@@ -612,10 +611,9 @@ mod tests {
  
      #[test]
      fn test_feature_dimension_consistency() {
-         // Test that GCN handles consistent feature dimensions
          let gcn = GCN::new(3, 2, false);
          
-         // Test with features that have different dimensions than expected
+
          let inconsistent_features = vec![
              vec![1.0, 2.0],        // Wrong dimension (2 instead of 3)
              vec![3.0, 4.0, 5.0],   // Correct dimension
@@ -623,17 +621,15 @@ mod tests {
  
          let graph = create_test_graph();
          
-         // The forward method should handle this gracefully
          let result = gcn.forward(&graph, &inconsistent_features);
          assert_eq!(result.len(), graph.nodes.len());
      }
  
-     // Integration test combining multiple components
      #[test]
      fn test_multi_layer_gat() -> Result<(), GraphError> {
          let device = Device::Cpu;
          
-         // Create two GAT layers
+         
          let layer1 = GATLayer::new(4, 8, 2, 0.1, 0.2, device.clone())?;
          let layer2 = GATLayer::new(8, 4, 1, 0.1, 0.2, device.clone())?;
  
@@ -654,11 +650,9 @@ mod tests {
              &device,
          )?;
  
-         // Pass through first layer
          let hidden = layer1.forward(&node_features, &edge_index)?;
          assert_eq!(hidden.dims(), &[3, 8]);
  
-         // Pass through second layer
          let output = layer2.forward(&hidden, &edge_index)?;
          assert_eq!(output.dims(), &[3, 4]);
  
