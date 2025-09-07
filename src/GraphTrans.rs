@@ -196,7 +196,7 @@ impl GCN{
             vec![0.0; output_dim]
         };
         
-        GraphConvolution {
+        GCN {
             input_dim,
             output_dim,
             weight_matrix,
