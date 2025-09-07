@@ -171,38 +171,14 @@ pub struct GCN{
     pub embedding_dim: usize,
     pub input_dim: usize,
     pub output_dim: usize,
-    pub weight_matrix: Vec<Vec<f32>>,
-    pub bias: Vec<f32>,
+    pub weight_matrix: Tensor,
+    pub bias: Tensor,
     pub use_bias: bool,
 }
 
 impl GCN{
     pub fn new(input_dim: usize, output_dim: usize, use_bias: bool) -> Self {
-        let mut rng = thread_rng();
-        
-        // Xavier initialization
-        let xavier_std = (2.0 / (input_dim + output_dim) as f32).sqrt();
-        let weight_matrix = (0..output_dim)
-            .map(|_| {
-                (0..input_dim)
-                    .map(|_| rng.gen_range(-xavier_std..xavier_std))
-                    .collect()
-            })
-            .collect();
-        
-        let bias = if use_bias {
-            (0..output_dim).map(|_| rng.gen_range(-0.1..0.1)).collect()
-        } else {
-            vec![0.0; output_dim]
-        };
-        
-        GCN {
-            input_dim,
-            output_dim,
-            weight_matrix,
-            bias,
-            use_bias,
-        }
+
     }
     
     pub fn forward(&self , graph: &Graph , node_features : &Vec<Vec<f32>>) -> Vec<Vec<f32>>{
