@@ -1,4 +1,4 @@
-use crate::graph::{Graph , GraphOps , EdgeDirection , NodeID , EdgeID , GraphError};
+use crate::graph::{Edge ,Node, Graph , GraphOps , EdgeDirection , NodeID , EdgeID , GraphError};
 use candle_core::{Tensor, Device, DType};
 use candle_nn::{Linear , ops::softmax , Module , Dropout , init  }; 
 use std::collections::{HashMap}; 
