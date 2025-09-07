@@ -1,7 +1,6 @@
 use crate::graph::{Node , Edge , Graph , GraphOps , EdgeDirection , NodeID , EdgeID};
 use candle_core::{Tensor, Device, DType};
-use candle_core::{Linear , Module}; 
-use candle_core::ops::{softmax , layer_norm , dropout , softmax_last_dim , leaky_relu};
+use candle_nn::{Linear , ops::softmax , Module , Dropout , init  }; 
 use std::collections::{HashMap}; 
 
 
@@ -208,7 +207,7 @@ impl GCN{
     
     pub fn forward(&self , graph: &Graph , node_features : &Vec<Vec<f32>>) -> Vec<Vec<f32>>{
         let nodes = graph.nodes.len();
-        let laplacian = graph.Laplacian(normalized = True).expect("Laplacian matrix not found");
+        let laplacian = Graph::Laplacian(normalized = true).expect("Laplacian matrix not found");
         
         let mut new_node_feat = vec![vec![0.0; self.output_dim]; nodes];
         
@@ -237,9 +236,9 @@ impl GCN{
                 
                 output[i][out_idx] = sum;
             }
+            
+            output
         }
-        
-        output
     }
 }
 
@@ -312,7 +311,7 @@ impl GraphSage{
         let mut layers = Vec::new();
         
         for i in 0..layer_dims.len(){
-            layers.push(GraphSageLayer::new(layer_dims[i], layer_dims[i+1], &device)?)
+            layers.push(GraphSageLayer::new(0.0f32 , layer_dims[i], layer_dims[i+1], &device)?)
         }
         
         Ok(Self{
@@ -321,6 +320,7 @@ impl GraphSage{
             sample_size,
         })
     }
+
     
     pub fn forward(&self, graph: &Graph , node_features: &HashMap<NodeID , Tensor> , target_nodes: &[NodeID]) -> Result<HashMap<NodeID, Tensor>>{
         let mut current_features = node_features.clone();
@@ -330,9 +330,9 @@ impl GraphSage{
             let mut next_features = HashMap::new();
             
             for &node_id in target_nodes{
-                let neighbors = graph::neighbors(&node_id , EdgeDirection::Undirected)?;
+                let neighbors = Graph::neighbors(graph, node_id, Direction::Outgoing)?;
                 
-                let neigbor_tensor : Vec<Tensor> = neighbors.iter().
+                let neighbor_tensor : Vec<Tensor> = neighbors.iter().
                     filter_map(|&n| current_features.get(&n).cloned()).collect();
                 
                 let aggregated = 
@@ -340,7 +340,7 @@ impl GraphSage{
                         GraphSageLayer::mean_aggregation(neighbor_tensor).unwrap();
                     }
                     else{
-                        Tensor::zeros(&[layer.input_dims] , DType = F32 , &self.device).unwrap();
+                        Tensor::zeros(&[layer.input_dims] , candle_core::DType::F64 , &self.device).unwrap();
                     };
                 
                 
@@ -358,21 +358,23 @@ impl GraphSage{
 
 #[cfg(test)]
 mod tests {
+    use crate::graph::GraphError;
+
     use super::*; 
     
-    fn create_test_graph() -> Graph { 
+    fn create_test_graph(graph: &Graph) -> Graph { 
         let mut undirected_graph = Graph::undirected(); 
         
         for i in 0..4 {
-            graph.add_node(Node::new(i, format!("node_{}", i)));
+            GraphOps::add_node(&mut undirected_graph, Node::new(i, format!("node_{}", i)));
         }
         
-        graph.add_edge(Edge::new(0, 0, 1, "edge".to_string())).unwrap();
-        graph.add_edge(Edge::new(1, 1, 2, "edge".to_string())).unwrap();
-        graph.add_edge(Edge::new(2, 2, 3, "edge".to_string())).unwrap();
-        graph.add_edge(Edge::new(3, 0, 2, "edge".to_string())).unwrap();
+        undirected_graph.add_edge(Edge::new(0, 0, 1, "edge".to_string())).unwrap();
+        undirected_graph.add_edge(Edge::new(1, 1, 2, "edge".to_string())).unwrap();
+        undirected_graph.add_edge(Edge::new(2, 2, 3, "edge".to_string())).unwrap();
+        undirected_graph.add_edge(Edge::new(3, 0, 2, "edge".to_string())).unwrap();
         
-        graph
+        undirected_graph
     }
     
     #[test]
@@ -490,7 +492,7 @@ mod tests {
      }
  
      #[test]
-     fn test_graphsage_mean_aggregation() -> Result<()> {
+     fn test_graphsage_mean_aggregation() -> Result<() , E> {
          let device = Device::Cpu;
  
          let neighbor1 = Tensor::new(vec![1.0f32, 2.0, 3.0], &device)?;
@@ -521,9 +523,9 @@ mod tests {
      }
  
      #[test]
-     fn test_graphsage_layer_forward() -> Result<()> {
+     fn test_graphsage_layer_forward() -> Result<() , E> {
          let device = Device::Cpu;
-         let sage_layer = GraphSageLayer::new(3, 2, &device)?;
+         let sage_layer = GraphSageLayer::new(3, 2, 10, &device)?;
  
          let node_features = Tensor::new(vec![1.0f32, 2.0, 3.0], &device)?;
          let neighbor_features = Tensor::new(vec![4.0f32, 5.0, 6.0], &device)?;
@@ -538,10 +540,10 @@ mod tests {
      }
  
      #[test]
-     fn test_graphsage_model_creation() -> Result<()> {
+     fn test_graphsage_model_creation() -> Result<() , E> {
          let device = Device::Cpu;
-         let layer_dims = vec![4, 8, 4]; // input -> hidden -> output
-         let sample_sizes = vec![5, 3]; // sample sizes for each layer
+         let layer_dims = vec![4, 8, 4];
+         let sample_sizes = vec![5, 3]; 
  
          let graphsage = GraphSage::new(&layer_dims, sample_sizes.clone(), device.clone());
          assert!(graphsage.is_ok());
@@ -554,7 +556,7 @@ mod tests {
      }
  
      #[test]
-     fn test_edge_index_bounds_checking() -> Result<()> {
+     fn test_edge_index_bounds_checking() -> Result<() , E> {
          let device = Device::Cpu;
          let gat_layer = GATLayer::new(2, 2, 1, 0.0, 0.2, device.clone())?;
  
@@ -584,7 +586,7 @@ mod tests {
      }
  
      #[test]
-     fn test_gat_self_attention() -> Result<()> {
+     fn test_gat_self_attention() -> Result<(), E> {
          let device = Device::Cpu;
          let gat_layer = GATLayer::new(2, 2, 1, 0.0, 0.2, device.clone())?;
  
@@ -631,7 +633,7 @@ mod tests {
  
      // Integration test combining multiple components
      #[test]
-     fn test_multi_layer_gat() -> Result<()> {
+     fn test_multi_layer_gat() -> Result<(), E> {
          let device = Device::Cpu;
          
          // Create two GAT layers
