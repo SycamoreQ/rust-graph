@@ -8,6 +8,28 @@ pub type TemporalGraphID = usize;
 pub type TemporalGraphBatchID = usize;
 pub type SpatialID = NodeID;
 
+
+#[derive(Debug , Clone)]
+pub struct TemporalGraph{
+    pub ID: SpatialID,
+    pub t_ID: TemporalGraphID,
+    pub nodes: HashMap<TemporalNodeID , Node> ,
+    pub edges: HashMap<TemporalEdgeID , Edge> ,
+    pub adjacency_list: HashMap<TemporalNodeID , Vec<TemporalEdgeID>>,
+    pub reverse_adjacency_list: HashMap<TemporalNodeID , Vec<TemporalEdgeID>>,
+    pub edge_type: HashMap<TemporalEdgeID , EdgeType>,
+    pub attributes: HashMap<String, String>,
+    pub slice_id: TemporalSliceID,
+    pub batch_id: TemporalGraphBatchID,
+    pub next_node_id: TemporalNodeID,
+    pub next_edge_id: TemporalEdgeID,
+    pub next_slice_id: TemporalSliceID,
+    pub next_batch_id: TemporalGraphBatchID,
+}
+
+
+
+
 #[derive(Debug , Clone)]
 pub enum TemporalGraphError { 
     InvalidTimeLabel, 
