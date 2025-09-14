@@ -2,8 +2,11 @@ use crate::graph::{
     AttributeValue, Edge, Graph, GraphError, GraphID, GraphOps, LapPE, Node, NodeID, RWSE,
 };
 use candle_core::{Device, Error, Tensor};
-use serde::{Deserialize, Serialize, de::value::UsizeDeserializer};
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize, de::value::UsizeDeserializer, forward_to_deserialize_any};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Range,
+};
 
 pub type TemporalNodeID = usize;
 pub type TemporalEdgeID = usize;
@@ -30,7 +33,7 @@ pub struct TemporalNode {
     pub timestep: TemporalSliceID,
 }
 
-impl Node {
+impl TemporalNode {
     pub fn new(id: TemporalNodeID, node_type: String, step: TemporalSliceID) -> Self {
         Self {
             id,
@@ -115,8 +118,7 @@ impl TemporalEdge {
 
 #[derive(Debug, Clone)]
 pub struct TemporalGraph {
-    pub id: GraphID,
-    pub t_id: TemporalGraphID,
+    pub id: TemporalGraphID,
     pub nodes: HashMap<TemporalNodeID, Node>,
     pub edges: HashMap<TemporalEdgeID, Edge>,
     pub adjacency_list: HashMap<TemporalNodeID, Vec<TemporalEdgeID>>,
@@ -124,22 +126,28 @@ pub struct TemporalGraph {
     pub edge_type: HashMap<TemporalEdgeID, EdgeType>,
     pub attributes: HashMap<String, String>,
     pub slice_id: TemporalSliceID,
-    pub batch_id: TemporalGraphBatchID,
-    pub next_node_id: TemporalNodeID,
-    pub next_edge_id: TemporalEdgeID,
     pub next_slice_id: TemporalSliceID,
-    pub next_batch_id: TemporalGraphBatchID,
+    pub prev_slice_id: TemporalSliceID,
 }
 
 pub trait TemporalOps {
-    fn new_timestep(&mut self) -> Self;
-    fn from_temporal_graph(graph: TemporalGraph) -> Self;
-    fn no_of_spatial_nodes(&self) -> usize;
-    fn no_of_temporal_nodes(&self) -> usize;
-    fn no_of_spatial_edges(&self) -> usize;
-    fn no_of_temporal_edges(&self) -> usize;
-    fn no_of_slices(&self) -> usize;
-    fn no_of_batches(&self) -> usize;
+    fn add_node(&mut self, node: TemporalNode) -> Result<(), TemporalGraphError>;
+    fn remove_node(&mut self, node_id: TemporalNodeID) -> Result<TemporalNode, TemporalGraphError>;
+    fn get_node(&self, node_id: TemporalNodeID) -> Option<&TemporalNode>;
+    fn has_node(&self, node_id: TemporalNodeID) -> bool;
+    fn node_count(&self) -> usize;
+    fn node_ids(&self) -> Vec<TemporalNodeID>;
+    fn add_edge(&mut self, edge: TemporalEdge) -> Result<(), TemporalGraphError>;
+    fn remove_edge(&mut self, edge_id: TemporalEdgeID) -> Result<TemporalEdge, TemporalGraphError>;
+    fn get_edge(&self, edge_id: TemporalEdgeID) -> Option<&TemporalEdge>;
+    fn has_edge(&self, edge_id: TemporalEdgeID) -> bool;
+    fn has_edge_between(&self, src: TemporalNodeID, dst: TemporalNodeID) -> bool;
+    fn edge_count(&self) -> usize;
+    fn edge_ids(&self) -> Vec<TemporalEdgeID>;
+    fn neighbors(&self, node_id: TemporalNodeID, direction: EdgeDirection) -> Vec<TemporalNodeID>;
+    fn to_adjacency_matrix(&self) -> Vec<Vec<f32>>;
+    fn to_edge_list(&self) -> Vec<(TemporalNodeID, TemporalNodeID, f32)>;
+    fn to_tensor_format(&self) -> Result<(Tensor, Tensor, Option<Tensor>), TemporalGraphError>;
 }
 
 #[derive(Debug, Clone)]
@@ -150,12 +158,27 @@ pub enum TemporalGraphError {
     InvalidTemporalID,
 }
 
+#[derive(Debug, Clone)]
+pub struct TemporalSlice {
+    pub id: TemporalSliceID,
+    pub start_time: usize,
+    pub end_time: usize,
+    pub nodes: HashMap<TemporalNodeID, TemporalNode>,
+    pub edges: HashMap<TemporalEdgeID, TemporalEdge>,
+    pub adjacency_list: HashMap<TemporalNodeID, Vec<TemporalEdgeID>>,
+    pub reverse_adjacency: HashMap<TemporalNodeID, Vec<TemporalEdgeID>>,
+    pub metadata: HashMap<String, AttributeValue>,
+    pub is_directed: bool,
+}
 
-impl TemporaGraph{
-    pub fn new(is_directed: bool) -> Self {
-        TemporaGraph {
-            id: GraphID::new(),
-            t_id: TemporalGraphID::new(),
+pub trait TemporalSliceOps {
+    //Todo : After TemporalGraph impl
+}
+
+impl TemporalGraph {
+    pub fn new(id: TemporalGraphID , is_directed: bool) -> Self {
+        TemporalGraph {
+            id ,
             nodes: HashMap::new(),
             edges: HashMap::new(),
             adjacency_list: HashMap::new(),
@@ -163,22 +186,11 @@ impl TemporaGraph{
             edge_type: HashMap::new(),
             attributes: HashMap::new(),
             slice_id: TemporalSliceID::new(),
-            batch_id: TemporalGraphBatchID::new(),
-            next_node_id: TemporalNodeID::new(),
-            next_edge_id: TemporalEdgeID::new(),
             next_slice_id: TemporalSliceID::new(),
-            next_batch_id: TemporalGraphBatchID::new(),
+            prev_slice_id: TemporalSliceID::new(),
         }
     }
-    
-    pub fn directed() -> Self{
-        Self::new(true)
-    }
-    
-    pub fn undirected() -> Self{
-        Self::new(false)
-    }
-    
+
     pub fn instantaneous_degree(
         &self,
         node_id: TemporalNodeID,
@@ -218,7 +230,7 @@ impl TemporaGraph{
 
         degree
     }
-    
+
     pub fn get_temporal_neighbors(
         &self,
         node_id: TemporalNodeID,
@@ -239,12 +251,42 @@ impl TemporaGraph{
 
         neighbors.into_iter().collect()
     }
-        
-    
-        
-        
-        
-        
-        
+
+    pub fn temporal_density(&self, timestep: TemporalSliceID) -> Result<f64, GraphError> {
+        let n = self.nodes.len() as f64;
+        let m = self.edges.len() as f64;
+
+        if n <= 1.0 {
+            return 1.0;
+        } else {
+            if !timestep && self.is_directed() {
+                Ok(m / (n * (n - 1.0)))
+            } else {
+                Ok(2.0 * m / (n * (n - 1.0)))
+            }
+        }
+    }
+
+    pub fn temporal_subgraph(
+        &self,
+        node_ids: &[TemporalNodeID],
+        forward_node_ids: &[TemporalNodeID],
+        reverse_node_ids: &[TemporalNodeID],
+        timestep: &[TemporalSliceID],
+    ) -> Result<TemporalGraph, GraphError> {
+        let mut subgraph = TemporalGraph::new(false);
+        let prev_node_set: HashSet<TemporalNodeID> = reverse_node_ids.iter().clone().collect();
+        let node_set: HashSet<TemporalNodeID> = node_ids.iter().clone().collect();
+        let forward_node_set: HashSet<TemporalNodeID> = forward_node_ids.iter().clone().collect();
+
+        ///Takes care of current present subgraph addition
+        for &node_id in node_ids {
+            if let Ok(node) = self.get_node(node_id) {
+                subgraph.add_node(node);
+            }
+        }
+
+        ///Choose a timeslice to add nodes from the past and future.
+        for &time in timestep.iter() {}
     }
 }
